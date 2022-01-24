@@ -45,6 +45,10 @@
 
 #include "KokkosBlas3_trsm.hpp"
 
+#ifdef HAVE_BELOS_RACE
+#include "RACE_frontend.hpp"
+#endif
+
 namespace BelosTpetra {
 namespace Impl {
 
@@ -124,7 +128,8 @@ public:
         // FIXME (mfh 17 Sep 2018) Don't throw; report an error code.
         //ncols = info;
         //throw std::runtime_error("Cholesky factorization failed");
-        *outPtr << "  >  POTRF( " << ncols << " ) failed with info = " << info << std::endl;
+        //*outPtr << "  >  POTRF( " << ncols << " ) failed with info = " << info << std::endl;
+          std::cout << "  >  POTRF( " << ncols << " ) failed with info = " << info << std::endl;
         for (size_t i=info-1; i<ncols; i++) {
           R_h(i, i) = one;
           for (size_t j=i+1; j<ncols; j++) {
@@ -246,6 +251,17 @@ public:
     bool useCholQR2 = params.get<bool> ("CholeskyQR2", useCholQR2_);
     useCholQR2_ = useCholQR2;
 
+#ifdef HAVE_BELOS_RACE
+    void *raceVoidHandle = params.get<void*> ("RACE void handle", this->input_.raceVoidHandle);
+    this->input_.raceVoidHandle = raceVoidHandle;
+
+    bool useRACE = params.get<bool> ("Use RACE", this->input_.useRACE);
+    this->input_.useRACE = useRACE;
+
+    int tunedPow = params.get<int> ("RACE tuned power", this->input_.tunedPow);
+    this->input_.tunedPow = tunedPow;
+#endif
+
     if ((!useCholQR && !useCholQR2) && !cholqr_.is_null ()) {
       cholqr_ = Teuchos::null;
     } else if ((useCholQR || useCholQR2) && cholqr_.is_null ()) {
@@ -271,9 +287,14 @@ private:
 
     // timers
     Teuchos::RCP< Teuchos::Time > spmvTimer = Teuchos::TimeMonitor::getNewCounter ("GmresSstep::matrix-apply");
+    Teuchos::RCP< Teuchos::Time > preconTimer = Teuchos::TimeMonitor::getNewCounter ("GmresSstep::Prec-apply");
     Teuchos::RCP< Teuchos::Time > bortTimer = Teuchos::TimeMonitor::getNewCounter ("GmresSstep::BOrtho");
     Teuchos::RCP< Teuchos::Time > tsqrTimer = Teuchos::TimeMonitor::getNewCounter ("GmresSstep::TSQR");
-
+#ifdef HAVE_BELOS_RACE
+    Teuchos::RCP< Teuchos::Time > MPK_RACE_Timer = Teuchos::TimeMonitor::getNewCounter ("GmresSstep::RACE MPK");
+#endif
+    Teuchos::RCP< Teuchos::Time > totalTimer = Teuchos::TimeMonitor::getNewCounter ("GmresSstep::total        ");
+    Teuchos::TimeMonitor GmresSstepTimer (*totalTimer);
     // initialize output parameters
     SolverOutput<SC> output {};
     output.converged = false;
@@ -320,7 +341,10 @@ private:
     R.update (one, B, -one);
     b0_norm = R.norm2 (); // initial residual norm, not preconditioned
     if (input.precoSide == "left") {
-      M.apply (R, P);
+        {
+            Teuchos::TimeMonitor LocalTimer (*preconTimer);
+            M.apply (R, P);
+        }
       r_norm = P.norm2 (); // initial residual norm, left-preconditioned
     } else {
       r_norm = b0_norm;
@@ -369,7 +393,10 @@ private:
       }
 
       if (input.precoSide == "left") {
-        M.apply (R, P);
+          {
+              Teuchos::TimeMonitor LocalTimer (*preconTimer);
+              M.apply (R, P);
+          }
         r_norm = P.norm2 (); // residual norm
       }
       else {
@@ -387,6 +414,9 @@ private:
 
     // Main loop
     int iter = 0;
+#ifdef HAVE_BELOS_RACE
+    int tunedPow=input.tunedPow;
+#endif
     while (output.numIters < input.maxNumIters && ! output.converged) {
       if (outPtr != nullptr) {
         *outPtr << "Restart cycle " << output.numRests << ":" << endl;
@@ -414,36 +444,91 @@ private:
         } else {
           stepSize = input.stepSize;
         }
-        for (step=0; step < stepSize && iter+step < restart; step++) {
-          // AP = A*P
-          vec_type P  = * (Q.getVectorNonConst (iter+step));
-          vec_type AP = * (Q.getVectorNonConst (iter+step+1));
-          if (input.precoSide == "none") {
-            Teuchos::TimeMonitor LocalTimer (*spmvTimer);
-            A.apply (P, AP);
-          }
-          else if (input.precoSide == "right") {
-            M.apply (P, MP);
-            {
-              Teuchos::TimeMonitor LocalTimer (*spmvTimer);
-              A.apply (MP, AP);
+
+#ifdef HAVE_BELOS_RACE
+        //RACE with precon not implemented now, so go to traditional approach
+        if(!input.useRACE || input.precoSide!="none")
+#endif
+        {
+            for (step=0; step < stepSize && iter+step < restart; step++) {
+                // AP = A*P
+                vec_type P  = * (Q.getVectorNonConst (iter+step));
+                vec_type AP = * (Q.getVectorNonConst (iter+step+1));
+                if (input.precoSide == "none") {
+                    Teuchos::TimeMonitor LocalTimer (*spmvTimer);
+                    A.apply (P, AP);
+                }
+                else if (input.precoSide == "right") {
+                    {
+                        Teuchos::TimeMonitor LocalTimer (*preconTimer);
+                        M.apply (P, MP);
+                    }
+                    {
+                        Teuchos::TimeMonitor LocalTimer (*spmvTimer);
+                        A.apply (MP, AP);
+                    }
+                }
+                else {
+                    {
+                        Teuchos::TimeMonitor LocalTimer (*spmvTimer);
+                        A.apply (P, MP);
+                    }
+                    {
+                        Teuchos::TimeMonitor LocalTimer (*preconTimer);
+                        M.apply (MP, AP);
+                    }
+                }
+                // Shift for Newton basis
+                if ( int (output.ritzValues.size()) > step) {
+                    //AP.update (-output.ritzValues(step), P, one);
+                    const complex_type theta = output.ritzValues[step];
+                    UpdateNewton<SC, MV>::updateNewtonV(iter+step, Q, theta);
+                }
+                output.numIters++;
             }
-          }
-          else {
-            {
-              Teuchos::TimeMonitor LocalTimer (*spmvTimer);
-              A.apply (P, MP);
-            }
-            M.apply (MP, AP);
-          }
-          // Shift for Newton basis
-          if ( int (output.ritzValues.size()) > step) {
-            //AP.update (-output.ritzValues(step), P, one);
-            const complex_type theta = output.ritzValues[step];
-            UpdateNewton<SC, MV>::updateNewtonV(iter+step, Q, theta);
-          }
-          output.numIters++;
         }
+#ifdef HAVE_BELOS_RACE
+        else
+        {
+            //each iteration does stepSize steps together
+            std::vector<complex_type> theta(stepSize,0);
+            int curStepSize =  0;
+            for(step=0; step < stepSize && iter+step < restart; step++) {
+                if ( int (output.ritzValues.size()) > step) {
+                    theta[step] = output.ritzValues[step];
+                }
+                if((iter+step) == 0)
+                {
+                    theta[step] = complex_type(theta[step].real(), 0); //make sure imaginary part is 0, so i-1 access does not happen
+                }
+                ++curStepSize;
+            }
+
+            if(curStepSize > 0)
+            {
+                Teuchos::Range1D index(iter, iter+curStepSize);
+                Teuchos::RCP<MV> Q_subview  = Q.subViewNonConst (index);
+                using RACE_type = RACE::frontend<typename OP::scalar_type, typename OP::local_ordinal_type, typename OP::global_ordinal_type, typename OP::node_type>;
+                Teuchos::RCP<RACE_type> raceHandle((RACE_type*) input.raceVoidHandle, false);
+                //updateNewtonV is also included
+                {
+                    Teuchos::TimeMonitor LocalTimer (*MPK_RACE_Timer);
+                    if(tunedPow == -1)
+                    {
+                        //if first iteration tune the inner stepSize
+                        tunedPow = raceHandle->apply_GmresSstep(curStepSize, *Q_subview, theta, -1);
+                        output.tunedPow = tunedPow;
+                    }
+                    else
+                    {
+                        //use the tunedPow as inner stepSize
+                        raceHandle->apply_GmresSstep(curStepSize, *Q_subview, theta, tunedPow);
+                    }
+                }
+                output.numIters += curStepSize;
+            }
+        }
+#endif
 
         // Orthogonalization
         {
@@ -545,7 +630,10 @@ private:
       dense_vector_type y_iter (Teuchos::View, y.values (), iter);
       if (input.precoSide == "right") {
         MVT::MvTimesMatAddMv (one, *Qj, y_iter, zero, R);
-        M.apply (R, MP);
+        {
+            Teuchos::TimeMonitor LocalTimer (*preconTimer);
+            M.apply (R, MP);
+        }
         X.update (one, MP, one);
       }
       else {
@@ -583,7 +671,10 @@ private:
           iter = 0;
           P = * (Q.getVectorNonConst (0));
           if (input.precoSide == "left") { // left-precond'd residual norm
-            M.apply (R, P);
+              {
+                  Teuchos::TimeMonitor LocalTimer (*preconTimer);
+                  M.apply (R, P);
+              }
             r_norm = P.norm2 ();
           }
           else {

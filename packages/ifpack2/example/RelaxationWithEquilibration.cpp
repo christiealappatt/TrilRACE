@@ -1,5 +1,6 @@
 #include "Ifpack2_Factory.hpp"
 #include "Ifpack2_Details_CanChangeMatrix.hpp"
+#include "Ifpack2_Relaxation.hpp"
 #include "BelosTpetraAdapter.hpp"
 #include "BelosSolverFactory.hpp"
 #include "MatrixMarket_Tpetra.hpp"
@@ -17,6 +18,7 @@
 #include "KokkosBlas1_abs.hpp"
 #include "KokkosBlas1_nrm2.hpp"
 #include "KokkosBlas3_gemm.hpp"
+#include "Teuchos_FancyOStream.hpp"
 
 #if defined(HAVE_IFPACK2_AZTECOO)
 #  include "AztecOO.h"
@@ -44,6 +46,8 @@
 #include <memory> // std::unique_ptr
 #include <sstream>
 #include <tuple>
+#include "RACE_frontend.hpp"
+
 
 namespace { // (anonymous)
 
@@ -1593,6 +1597,7 @@ struct CmdLineArgs {
   std::string maxIterValues = "100";
   std::string restartLengthValues = "20";
   std::string preconditionerTypes = "RELAXATION";
+  std::string preconditionerSubType = "Jacobi";
   bool solverVerbose = false;
   bool equilibrate = false;
   bool assumeSymmetric = false;
@@ -1603,6 +1608,9 @@ struct CmdLineArgs {
   bool useAztecOO = false;
   bool printSolution = false;
   bool useReorderingInIfpack2 = false;
+  bool useRACEreordering = false;
+  std::string RACE_cacheSize = "-1";
+  std::string RACE_highestPower = "1";
 };
 
 // Read in values of command-line arguments.
@@ -1633,6 +1641,8 @@ getCmdLineArgs (CmdLineArgs& args, int argc, char* argv[])
   cmdp.setOption ("preconditionerTypes", &args.preconditionerTypes,
                   "One or more Ifpack2 preconditioner types, "
                   "separated by commas");
+  cmdp.setOption ("preconditionerSubType", &args.preconditionerSubType,
+                  "One Ifpack2 preconditioner sub type (Jacobi, Gauss-Seidel, ...)");
   cmdp.setOption ("solverVerbose", "solverQuiet", &args.solverVerbose,
                   "Whether the Belos solver should print verbose output");
   cmdp.setOption ("equilibrate", "no-equilibrate", &args.equilibrate,
@@ -1666,7 +1676,13 @@ getCmdLineArgs (CmdLineArgs& args, int argc, char* argv[])
   cmdp.setOption ("useReorderingInIfpack2", "dontUseReorderingInIfpack2",
                   &args.useReorderingInIfpack2,
                   "Whether to use reordering in Ifpack2.");
-
+  cmdp.setOption ("useRACEreordering", "dontUseRACEreordering",
+                  &args.useRACEreordering, "Whether to use RACE reordering");
+  cmdp.setOption ("RACE_cacheSize", &args.RACE_cacheSize,
+                  "Cache size used for RACE reordering");
+  cmdp.setOption ("RACE_highestPower", &args.RACE_highestPower,
+                  "Highest power used for RACE reordering");
+ 
   auto result = cmdp.parse (argc, argv);
   return result == Teuchos::CommandLineProcessor::PARSE_SUCCESSFUL;
 }
@@ -1694,6 +1710,7 @@ private:
   using solver_type = Belos::SolverManager<scalar_type, MV, OP>;
   using preconditioner_type =
     Ifpack2::Preconditioner<scalar_type, local_ordinal_type, global_ordinal_type, node_type>;
+
 
   void createPreconditioner ()
   {
@@ -1746,6 +1763,19 @@ private:
         rightPrec_->initialize ();
       }
       rightPrec_->compute ();
+
+#if 0
+      //print out precon details
+      using Teuchos::RCP;
+      using Teuchos::rcpFromRef;
+      using Teuchos::FancyOStream;
+
+      // Wrap std::cout in a FancyOStream.
+      RCP<FancyOStream> wrappedCout = getFancyOStream (rcpFromRef (std::cout));
+      using relaxation_type = Ifpack2::Relaxation<Tpetra::RowMatrix<scalar_type, local_ordinal_type, global_ordinal_type, node_type>>;
+      relaxation_type* rightPrec_relaxation = dynamic_cast<relaxation_type*>(rightPrec_.getRawPtr());
+      rightPrec_relaxation->describe(*wrappedCout);
+#endif
     }
   }
 
@@ -2017,10 +2047,12 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
                 MultiVectorType& B,
                 const std::string& solverType,
                 /*const std::string& */ std::string precType,
+                /*const std::string& */ std::string precSubType,
                 const typename MultiVectorType::mag_type convergenceTolerance,
                 const int maxIters,
                 const int restartLength,
-                const CmdLineArgs& args)
+                const CmdLineArgs& args, void* raceVoidHandle=NULL,
+                int raceTunedPow=1)
 {
   using Teuchos::ParameterList;
   using Teuchos::RCP;
@@ -2042,6 +2074,12 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
     solverParams->set ("Orthogonalization", args.orthogonalizationMethod);
   }
 
+  if( (solverType == "TPETRA GMRES S-STEP") && args.useRACEreordering) {
+      solverParams->set("RACE void handle", raceVoidHandle);
+      solverParams->set("Use RACE", true);
+      solverParams->set("RACE tuned power", raceTunedPow);
+  }
+
   RCP<ParameterList> precParams (new ParameterList ("Ifpack2"));
 
   if (args.useReorderingInIfpack2) {
@@ -2050,7 +2088,8 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
     {
       ParameterList& relaxParams =
         precParams->sublist ("schwarz: subdomain solver parameters", false);
-      relaxParams.set ("relaxation: type", "Symmetric Gauss-Seidel");
+      //relaxParams.set ("relaxation: type", "Symmetric Gauss-Seidel");
+      relaxParams.set ("relaxation: type", precSubType);
     }
     precParams->set ("schwarz: overlap level", int (0));
     precParams->set ("schwarz: use reordering", true);
@@ -2058,7 +2097,12 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
   }
   else {
     if (precType == "RELAXATION") {
-      precParams->set ("relaxation: type", "Symmetric Gauss-Seidel");
+     //precParams->set ("relaxation: type", "Symmetric Gauss-Seidel");
+    //precParams->set ("relaxation: type", "MT Symmetric Gauss-Seidel");
+     // precParams->set ("relaxation: type", "MT Gauss-Seidel");
+      //precParams->set ("relaxation: type", "Jacobi");
+      precParams->set ("relaxation: type", precSubType);
+      precParams->set ("relaxation: check diagonal entries", true);
     }
   }
 
@@ -2092,12 +2136,24 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
     B_norm2_max = norms[j] < B_norm2_max ? B_norm2_max : norms[j];
   }
 
-  // Solve the linear system AX=B.
-  auto result = solver.solve (X, B);
+#ifdef BELOS_TEUCHOS_TIME_MONITOR
+  Teuchos::RCP<Teuchos::Time> solveTime;
+  solveTime = Teuchos::TimeMonitor::getNewCounter("Final solve time");
+#endif
+  using scalar_type = typename CrsMatrixType::scalar_type;
+  BelosSolverResult<scalar_type> result;
+  {
+#ifdef BELOS_TEUCHOS_TIME_MONITOR
+      Teuchos::TimeMonitor updateTimer( *solveTime);
+#endif
+      // Solve the linear system AX=B.
+      result = solver.solve (X, B);
+  }
+
 
   // Compute the actual residual norm ||B - A*X||_2.
-  using scalar_type = typename MultiVectorType::scalar_type;
-  const scalar_type ONE = Teuchos::ScalarTraits<scalar_type>::one ();
+  using scalar_type_vec = typename MultiVectorType::scalar_type;
+  const scalar_type_vec ONE = Teuchos::ScalarTraits<scalar_type_vec>::one ();
   A_original.apply (X, R, Teuchos::NO_TRANS, -ONE, ONE); // R := -A*X + B
   R.norm2 (norms ());
 
@@ -2115,6 +2171,23 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
     // this is what we want
     X_norm2_max = norms[j] < X_norm2_max ? X_norm2_max : norms[j];
   }
+
+  //compute abs error
+  MultiVectorType X_soln(X, Teuchos::Copy);;
+  X_soln.putScalar (1.0);
+
+  double norm_x {0.0};
+  using host_device_type = Kokkos::Device<Kokkos::DefaultExecutionSpace, Kokkos::HostSpace>;
+  Kokkos::View<double*, host_device_type> normView (&norm_x, X_soln.getNumVectors ());
+  X_soln.norm2 (normView);
+  if (norm_x != 0.0) {
+      X_soln.scale (1.0 / norm_x);
+  }
+  //X_soln contains error now
+  X_soln.update(ONE, X, -ONE);
+  double norm_err {0.0};
+  Kokkos::View<double*, host_device_type> normView_err (&norm_err, X_soln.getNumVectors ());
+  X_soln.norm2(normView_err);
 
   const int myRank = X.getMap ()->getComm ()->getRank ();
   if (myRank == 0) {
@@ -2135,6 +2208,7 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
          << "  Achieved tolerance: " << result.achievedTolerance << endl
          << "  Loss of accuracy: " << result.lossOfAccuracy << endl
          << "  ||B-A*X||_2: " << R_norm2_max << endl
+         << "  ||X-X_soln||_2: " << norm_err << endl
          << "  ||B||_2: " << B_norm2_max << endl
          << "  ||X||_2: " << X_norm2_max << endl;
     if (B_norm2_max != Kokkos::ArithTraits<mag_type>::zero ()) {
@@ -2213,6 +2287,14 @@ main (int argc, char* argv[])
     preconditionerTypes = splitIntoStrings (args.preconditionerTypes);
   }
 
+  std::string preconditionerSubType;
+  if (args.preconditionerSubType == "") {
+    preconditionerSubType = "Jacobi";
+  }
+  else {
+    preconditionerSubType = args.preconditionerSubType;
+  }
+
   std::vector<int> maxIterValues;
   if (args.maxIterValues == "") {
     maxIterValues = {100};
@@ -2239,14 +2321,46 @@ main (int argc, char* argv[])
   }
 
   // Read sparse matrix A from Matrix Market file.
-  RCP<crs_matrix_type> A =
+  RCP<crs_matrix_type> origA =
     reader_type::readSparseFile (args.matrixFilename, comm);
-  if (A.get () == nullptr) {
+  if (origA.get () == nullptr) {
     if (comm->getRank () == 0) {
       cerr << "Failed to load sparse matrix A from file "
         "\"" << args.matrixFilename << "\"!" << endl;
     }
     return EXIT_FAILURE;
+  }
+
+  RCP<crs_matrix_type> A;
+
+  using RACE_type = RACE::frontend<crs_matrix_type::scalar_type, crs_matrix_type::local_ordinal_type,crs_matrix_type::global_ordinal_type, crs_matrix_type::node_type>;
+
+  Teuchos::RCP<RACE_type> race;
+  void* raceVoidHandle = NULL;
+  int raceTunedPow = 1;
+
+  if(args.useRACEreordering)
+  {
+      ParameterList RACE_params("RACE");
+      //cache size in MB
+      RACE_params.set("Cache size", atof(args.RACE_cacheSize.c_str()));
+      int highestPower = atoi(args.RACE_highestPower.c_str());
+      RACE_params.set("Highest power", highestPower);
+      race = Teuchos::RCP<RACE_type>(new RACE_type(origA, RACE_params));
+      A = race->getPermutedMatrix();
+      raceVoidHandle = (void*)(race.getRawPtr());
+
+      //get tuned power size for GmresSstep
+      RCP<MV> test;
+      test = Teuchos::rcp (new MV(A->getRangeMap(), highestPower+1));
+      std::vector<std::complex<double>> theta(highestPower, -1);
+      raceTunedPow = race->apply_GmresSstep(highestPower, *test, theta, -1);
+      //raceTunedPow = race->apply(highestPower, *test, 1, 0, -1);
+      printf("tuned pow = %d\n", raceTunedPow);
+  }
+  else
+  {
+      A = origA;
   }
 
   // Read right-hand side vector(s) B from Matrix Market file, or
@@ -2257,9 +2371,18 @@ main (int argc, char* argv[])
     B = Teuchos::rcp (new MV (A->getRangeMap (), 1));
     X = Teuchos::rcp (new MV (A->getDomainMap (), 1));
     X->putScalar (1.0);
+    //added by Christie to get solution norm to 1
+    double norm_x {0.0};
+    using host_device_type = Kokkos::Device<Kokkos::DefaultExecutionSpace, Kokkos::HostSpace>;
+    Kokkos::View<double*, host_device_type> normView (&norm_x, X->getNumVectors ());
+    X->norm2 (normView);
+    if (norm_x != 0.0) {
+        X->scale (1.0 / norm_x);
+    }
+
     A->apply (*X, *B);
     X->putScalar (0.0);
-
+/*
     double norm {0.0};
     using host_device_type = Kokkos::Device<Kokkos::DefaultExecutionSpace, Kokkos::HostSpace>;
     Kokkos::View<double*, host_device_type> normView (&norm, B->getNumVectors ());
@@ -2267,6 +2390,7 @@ main (int argc, char* argv[])
     if (norm != 0.0) {
       B->scale (1.0 / norm);
     }
+    */
   }
   else {
     auto map = A->getRangeMap ();
@@ -2552,15 +2676,18 @@ main (int argc, char* argv[])
             solveAndReport (solver, *A_original, *X, *B,
                             solverType,
                             precType,
+                            preconditionerSubType,
                             convTol,
                             maxIters,
                             restartLength,
-                            args);
+                            args,
+                            raceVoidHandle, raceTunedPow);
           }
         }
       }
     }
   }
 
+  Teuchos::TimeMonitor::summarize();
   return EXIT_SUCCESS;
 }

@@ -46,6 +46,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include "Belos_config.h"
 
 namespace BelosTpetra {
 namespace Impl {
@@ -98,6 +99,11 @@ public:
   std::string precoSide {"none"};
   bool computeRitzValues = true;
   bool computeRitzValuesOnFly = false;
+#ifdef HAVE_BELOS_RACE
+  void* raceVoidHandle = NULL;
+  bool useRACE = false;
+  int tunedPow = -1;
+#endif
 };
 
 // The default constructor creates output corresponding to "solving
@@ -126,6 +132,9 @@ struct SolverOutput {
   bool converged = true;
   //! Ritz values if requested
   std::vector<complex_type> ritzValues;
+#ifdef HAVE_BELOS_RACE
+  int tunedPow;
+#endif
 };
 
 /// \brief Combine two solver outputs.

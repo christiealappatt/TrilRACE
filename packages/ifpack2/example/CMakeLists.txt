@@ -7,6 +7,10 @@ TRIBITS_ADD_EXECUTABLE(
 )
 
 TRIBITS_ADD_EXECUTABLE(
+  RelaxationWithEquilibrationPoly
+  SOURCES RelaxationWithEquilibrationPoly.cpp
+)
+TRIBITS_ADD_EXECUTABLE(
   RelaxationWithEquilibration
   SOURCES RelaxationWithEquilibration.cpp
 )
