@@ -90,6 +90,14 @@ TRIBITS_ADD_OPTION_AND_DEFINE(
   "Enable experimental Belos solvers and features."
   NO )
 
+TRIBITS_ADD_OPTION_AND_DEFINE(
+    ${PACKAGE_NAME}_ENABLE_RACE
+    HAVE_BELOS_RACE
+    "Enable RACE (RACE is a graph library that can speedup matrix power
+    kernels). You must build Trilinos with RACE to use this, i.e., set Trilinos"
+    NO)
+
+
 # See above discussion of "experimental" Belos headers and source
 # files.  belos/src/CMakeLists.txt may append to these lists.
 SET(${PACKAGE_NAME}_EXPERIMENTAL_HEADERS "")
