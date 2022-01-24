@@ -59,8 +59,6 @@
 #ifdef BELOS_TEUCHOS_TIME_MONITOR
 #include "Teuchos_TimeMonitor.hpp"
 #endif
-
-
 namespace Belos {
 
 //! @name GmresPolySolMgr Exceptions
@@ -157,7 +155,6 @@ private:
   typedef typename Teuchos::ScalarTraits<ScalarType>::magnitudeType MagnitudeType;
   typedef Belos::GmresPolyOp<ScalarType,MV,OP> gmres_poly_t;
   typedef Belos::GmresPolyMv<ScalarType,MV>    gmres_poly_mv_t;
-
 public:
 
   //! @name Constructors/Destructor
@@ -218,7 +215,7 @@ public:
   Teuchos::RCP<const Teuchos::ParameterList> getCurrentParameters() const override { return params_; }
 
   /*! \brief Return the timers for this object.
-   *
+   i*
    * The timers are ordered as follows:
    *   - time spent in solve() routine
    */
@@ -322,7 +319,13 @@ private:
   static constexpr bool addRoots_default_ = true;
   static constexpr bool dampPoly_default_ = false;
   static constexpr bool randomRHS_default_ = true; 
-// https://stackoverflow.com/questions/24398102/constexpr-and-initialization-of-a-static-const-void-pointer-with-reinterpret-cas
+#ifdef HAVE_BELOS_RACE
+  void* raceVoidHandle_default_ = NULL;
+  static constexpr bool useRACE_default_ = false;
+  static constexpr int tunedPowerRACE_default_ = 1;
+#endif
+
+  // https://stackoverflow.com/questions/24398102/constexpr-and-initialization-of-a-static-const-void-pointer-with-reinterpret-cas
 #if defined(_WIN32) && defined(__clang__)
     static constexpr std::ostream * outputStream_default_ =
        __builtin_constant_p(reinterpret_cast<const std::ostream*>(&std::cout));
@@ -341,6 +344,12 @@ private:
   std::string polyType_;
   std::string outerSolverType_;
   std::string orthoType_;
+
+#ifdef HAVE_BELOS_RACE
+  void* raceVoidHandle_;
+  bool useRACE_;
+  int tunedPowerRACE_;
+#endif
 
   // Polynomial storage
   int poly_dim_;
@@ -377,6 +386,12 @@ GmresPolySolMgr<ScalarType,MV,OP>::GmresPolySolMgr () :
   label_ (label_default_),
   isSet_ (false),
   loaDetected_ (false)
+#ifdef HAVE_BELOS_RACE
+  ,
+  raceVoidHandle_(raceVoidHandle_default_),
+  useRACE_(useRACE_default_),
+  tunedPowerRACE_(tunedPowerRACE_default_)
+#endif
 {}
 
 
@@ -401,6 +416,12 @@ GmresPolySolMgr (const Teuchos::RCP<LinearProblem<ScalarType,MV,OP> > &problem,
   label_ (label_default_),
   isSet_ (false),
   loaDetected_ (false)
+#ifdef HAVE_BELOS_RACE
+  ,
+  raceVoidHandle_(raceVoidHandle_default_),
+  useRACE_(useRACE_default_),
+  tunedPowerRACE_(tunedPowerRACE_default_),
+#endif
 {
   TEUCHOS_TEST_FOR_EXCEPTION(
     problem_.is_null (), std::invalid_argument,
@@ -449,6 +470,16 @@ GmresPolySolMgr<ScalarType,MV,OP>::getValidParameters() const
       "Add roots to polynomial for stability.");
     pl->set("Damp Poly", static_cast<bool>(dampPoly_default_),
       "Damp polynomial for ill-conditioned problems.");
+#ifdef HAVE_BELOS_RACE
+    pl->set("RACE void handle", static_cast<void*>(raceVoidHandle_default_),
+            "handle for RACE engine");
+    pl->set("Use RACE", static_cast<bool>(useRACE_default_),
+            "set true to enable RACE for MPK calculation");
+    pl->set("RACE tuned power", static_cast<int>(tunedPowerRACE_default_),
+            "step size used for RACE-MPK power calculation");
+#endif
+
+
     validPL_ = pl;
   }
   return validPL_;
@@ -486,6 +517,7 @@ setParameters (const Teuchos::RCP<Teuchos::ParameterList>& params)
   // Check if there is a parameter list for the outer solver
   if (params->isSublist("Outer Solver Params")) {
     outerParams_ = Teuchos::parameterList( params->get<Teuchos::ParameterList>("Outer Solver Params") );
+    //printf("max iter = %s\n", outerParams_->get("Maximum Iterations", 1000));
   }   
 
   // Check for maximum polynomial degree
@@ -588,9 +620,23 @@ setParameters (const Teuchos::RCP<Teuchos::ParameterList>& params)
   if (params->isParameter("Add Roots")) {
     addRoots_ = params->get("Add Roots",addRoots_default_);
   }
-
   // Update parameter in our list.
   params_->set("Add Roots", addRoots_);
+
+#ifdef HAVE_BELOS_RACE
+    if (params->isParameter("RACE void handle")) {
+        raceVoidHandle_ = params->get("RACE void handle", raceVoidHandle_default_);
+    }
+    params_->set("RACE void handle", raceVoidHandle_);
+    if (params->isParameter("Use RACE")) {
+        useRACE_ = params->get("Use RACE", useRACE_default_);
+    }
+    params_->set("Use RACE", useRACE_);
+    if (params->isParameter("RACE tuned power")) {
+        tunedPowerRACE_ = params->get("RACE tuned power", tunedPowerRACE_default_);
+    }
+    params_->set("RACE tuned power", tunedPowerRACE_);
+#endif
 
   // Create the timers if we need to.
 #ifdef BELOS_TEUCHOS_TIME_MONITOR
@@ -609,7 +655,7 @@ setParameters (const Teuchos::RCP<Teuchos::ParameterList>& params)
   isSet_ = true;
 }
 
-
+#ifndef TPETRA_SPECIALIZATION
 template<class ScalarType, class MV, class OP>
 ReturnType GmresPolySolMgr<ScalarType,MV,OP>::solve ()
 {
@@ -660,6 +706,8 @@ ReturnType GmresPolySolMgr<ScalarType,MV,OP>::solve ()
     // Use outer solver parameter list passed in a sublist.
     Belos::GenericSolverFactory<ScalarType, MultiVec<ScalarType>, Operator<ScalarType> > factory;
     RCP<SolverManager<ScalarType, MultiVec<ScalarType>, Operator<ScalarType> > > solver = factory.create( outerSolverType_, outerParams_ );
+
+
     TEUCHOS_TEST_FOR_EXCEPTION( solver == Teuchos::null, std::invalid_argument,
       "Belos::GmresPolySolMgr::solve(): Selected solver is not valid.");
 
@@ -667,16 +715,18 @@ ReturnType GmresPolySolMgr<ScalarType,MV,OP>::solve ()
     // The original initial solution and right-hand side are thinly wrapped in the gmres_poly_mv_t
     RCP<gmres_poly_mv_t> new_lhs = rcp( new gmres_poly_mv_t( problem_->getLHS() ) );
     RCP<gmres_poly_mv_t> new_rhs = rcp( new gmres_poly_mv_t( rcp_const_cast<MV>( problem_->getRHS() ) ) );
-    RCP<gmres_poly_t> A = rcp( new gmres_poly_t( problem_ ) );  // This just performs problem_->applyOp
+    RCP<gmres_poly_t> A = rcp( new gmres_poly_t( problem_ ) );  // This just performs problem_->applyOp*/
+
     RCP<LinearProblem<ScalarType,MultiVec<ScalarType>,Operator<ScalarType> > > newProblem =
-      rcp( new LinearProblem<ScalarType,MultiVec<ScalarType>,Operator<ScalarType> >( A, new_lhs, new_rhs ) );
+     rcp( new LinearProblem<ScalarType,MultiVec<ScalarType>,Operator<ScalarType> >( A, new_lhs, new_rhs ) );
+
     std::string solverLabel = label_ + ": Hybrid Gmres";
     newProblem->setLabel(solverLabel); 
 
     // If the preconditioner is left preconditioner, use Gmres poly as a left preconditioner.
     if (problem_->getLeftPrec() != Teuchos::null)
       newProblem->setLeftPrec( poly_Op_ );
-    else 
+    else
       newProblem->setRightPrec( poly_Op_ );
     // Set the initial residual vector, if it has already been set in the original problem.
     // Don't set the preconditioned residual vector, because it is not the GmresPoly preconditioned residual vector.
@@ -716,6 +766,133 @@ ReturnType GmresPolySolMgr<ScalarType,MV,OP>::solve ()
   return ret;
 }
 
+#else
+//specialization for Tpetra
+template<class ScalarType, class MV, class OP>
+ReturnType GmresPolySolMgr<ScalarType,MV,OP>::solve ()
+{
+  using Teuchos::RCP;
+  using Teuchos::rcp;
+  using Teuchos::rcp_const_cast;
+
+  // Assume convergence is achieved if user does not require strict convergence.
+  ReturnType ret = Belos::Converged;
+
+  // Set the current parameters if they were not set before.  NOTE:
+  // This may occur if the user generated the solver manager with the
+  // default constructor and then didn't set any parameters using
+  // setParameters().
+  if (! isSet_) {
+    setParameters (Teuchos::parameterList (*getValidParameters ()));
+  }
+
+  TEUCHOS_TEST_FOR_EXCEPTION(
+    problem_.is_null (), GmresPolySolMgrLinearProblemFailure,
+    "Belos::GmresPolySolMgr::solve: The linear problem has not been set yet, "
+    "or was set to null.  Please call setProblem() with a nonnull input before "
+    "calling solve().");
+
+  TEUCHOS_TEST_FOR_EXCEPTION(
+    ! problem_->isProblemSet (), GmresPolySolMgrLinearProblemFailure,
+    "Belos::GmresPolySolMgr::solve: The linear problem is not ready.  Please "
+    "call setProblem() on the LinearProblem object before calling solve().");
+
+  // If the GMRES polynomial has not been constructed for this
+  // (nmatrix, preconditioner) pair, generate it.
+  if (!poly_dim_ && maxDegree_) {
+#ifdef BELOS_TEUCHOS_TIME_MONITOR
+    Teuchos::TimeMonitor slvtimer(*timerPoly_);
+#endif
+
+    poly_Op_ = Teuchos::rcp( new gmres_poly_t( problem_, params_ ) );
+    poly_dim_ = poly_Op_->polyDegree();
+
+    TEUCHOS_TEST_FOR_EXCEPTION( !poly_dim_, GmresPolySolMgrPolynomialFailure,
+      "Belos::GmresPolyOp: Failed to generate polynomial that satisfied requirements.");
+  }
+ // Solve the linear system using the polynomial
+  if (hasOuterSolver_  && maxDegree_) {
+
+    // Then the polynomial will be used as an operator for an outer solver.
+    // Use outer solver parameter list passed in a sublist.
+    //Belos::GenericSolverFactory<ScalarType, MultiVec<ScalarType>, Operator<ScalarType> > factory;
+    //RCP<SolverManager<ScalarType, MultiVec<ScalarType>, Operator<ScalarType> > > solver = factory.create( outerSolverType_, outerParams_ );
+    Belos::SolverFactory<ScalarType, MV, OP> factory;
+    RCP<SolverManager<ScalarType, MV, OP> > solver = factory.create( outerSolverType_, outerParams_ );
+
+
+    TEUCHOS_TEST_FOR_EXCEPTION( solver == Teuchos::null, std::invalid_argument,
+      "Belos::GmresPolySolMgr::solve(): Selected solver is not valid.");
+
+    // Create a copy of the linear problem that uses the polynomial as a preconditioner.
+    // The original initial solution and right-hand side are thinly wrapped in the gmres_poly_mv_t
+    /*RCP<gmres_poly_mv_t> new_lhs = rcp( new gmres_poly_mv_t( problem_->getLHS() ) );
+    RCP<gmres_poly_mv_t> new_rhs = rcp( new gmres_poly_mv_t( rcp_const_cast<MV>( problem_->getRHS() ) ) );
+    RCP<gmres_poly_t> A = rcp( new gmres_poly_t( problem_ ) );  // This just performs problem_->applyOp
+    */
+/*
+    RCP<MV> new_lhs = rcp( new MV(problem_->getLHS()) );
+    RCP<MV> new_rhs = rcp( new MV(rcp_const_cast<MV>( problem_->getRHS() ) ) );
+    RCP<OP> A = rcp( new OP(problem_) );  // This just performs problem_->applyOp
+*/
+    /*
+    RCP<LinearProblem<ScalarType,MultiVec<ScalarType>,Operator<ScalarType> > > newProblem =
+     rcp( new LinearProblem<ScalarType,MultiVec<ScalarType>,Operator<ScalarType> >( A, new_lhs, new_rhs ) );
+     */
+     //RCP<LinearProblem<ScalarType, gmres_poly_mv_t, gmres_poly_t > > newProblem =
+     //rcp( new LinearProblem<ScalarType, gmres_poly_mv_t, gmres_poly_t >( A, new_lhs, new_rhs ) );
+//
+   // RCP<LinearProblem<ScalarType, MV, OP> > newProblem =
+   //   rcp( new LinearProblem<ScalarType, MV, OP>( A, new_lhs, new_rhs ) );
+       RCP<LinearProblem<ScalarType, MV, OP> > newProblem =
+      rcp( new LinearProblem<ScalarType, MV, OP>( getProblem() ) );
+ 
+    std::string solverLabel = label_ + ": Hybrid Gmres";
+    newProblem->setLabel(solverLabel); 
+
+    // If the preconditioner is left preconditioner, use Gmres poly as a left preconditioner.
+    if (problem_->getLeftPrec() != Teuchos::null)
+      newProblem->setLeftPrec( poly_Op_ );
+    else
+      newProblem->setRightPrec( poly_Op_ );
+    // Set the initial residual vector, if it has already been set in the original problem.
+    // Don't set the preconditioned residual vector, because it is not the GmresPoly preconditioned residual vector.
+    if (problem_->getInitResVec() != Teuchos::null)
+      newProblem->setInitResVec( rcp( new gmres_poly_mv_t( rcp_const_cast<MV>( problem_->getInitResVec() ) ) ) );
+    newProblem->setProblem();
+
+    solver->setProblem( newProblem );
+    
+    ret = solver->solve();
+    numIters_ = solver->getNumIters();
+    loaDetected_ = solver->isLOADetected();
+
+  } // if (hasOuterSolver_ && maxDegree_)
+  else if (hasOuterSolver_) {
+
+    // There is no polynomial, just create the outer solver with the outerSolverType_ and outerParams_.
+    Belos::SolverFactory<ScalarType, MV, OP> factory;
+    RCP<SolverManager<ScalarType, MV, OP> > solver = factory.create( outerSolverType_, outerParams_ );
+    TEUCHOS_TEST_FOR_EXCEPTION( solver == Teuchos::null, std::invalid_argument,
+      "Belos::GmresPolySolMgr::solve(): Selected solver is not valid.");
+
+    solver->setProblem( problem_ );
+    
+    ret = solver->solve();
+    numIters_ = solver->getNumIters();
+    loaDetected_ = solver->isLOADetected();
+
+  }
+  else if (maxDegree_) {
+
+    // Apply the polynomial to the current linear system
+    poly_Op_->ApplyPoly( *problem_->getRHS(), *problem_->getLHS() );
+
+  }
+
+  return ret;
+}
+#endif
 
 template<class ScalarType, class MV, class OP>
 std::string GmresPolySolMgr<ScalarType,MV,OP>::description () const

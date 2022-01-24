@@ -67,6 +67,9 @@
 /* Define if we are building with experimental code enabled */
 #cmakedefine HAVE_BELOS_EXPERIMENTAL
 
+/* Define if we are building with RACE*/
+#cmakedefine HAVE_BELOS_RACE
+
 /* Add macros for declaring functions deprecated */
 @BELOS_DEPRECATED_DECLARATIONS@
 
