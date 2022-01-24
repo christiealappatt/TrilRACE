@@ -94,6 +94,7 @@ TRIBITS_REPOSITORY_DEFINE_PACKAGES(
   Amesos                packages/amesos                   PT
   Pamgen                packages/pamgen                   PT
   Zoltan2Core           packages/zoltan2/core             PT
+  TrilinosRACE          packages/TrilinosRACE             EX
   Ifpack                packages/ifpack                   PT
   ML                    packages/ml                       PT
   Belos                 packages/belos                    PT
