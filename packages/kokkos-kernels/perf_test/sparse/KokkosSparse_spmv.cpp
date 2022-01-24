@@ -85,7 +85,8 @@ typedef default_layout Layout;
 template<typename AType, typename XType, typename YType>
 void matvec(AType& A, XType x, YType y, Ordinal rows_per_thread, int team_size, int vector_length, int test, int schedule) {
 
-        switch(test) {
+    KokkosKernels::Experimental::Controls controls;
+    switch(test) {
 
         case KOKKOS:
                 if(schedule == AUTO)
@@ -127,7 +128,8 @@ void matvec(AType& A, XType x, YType y, Ordinal rows_per_thread, int team_size, 
                 break;
 #endif
         case KK_KERNELS:
-                KokkosSparse::spmv (KokkosSparse::NoTranspose,1.0,A,x,0.0,y);
+                controls.setParameter("schedule", "static");
+                KokkosSparse::spmv (controls, KokkosSparse::NoTranspose,1.0,A,x,0.0,y);
                 break;
         case KK_KERNELS_INSP:
                 if(A.graph.row_block_offsets.data()==NULL) {
