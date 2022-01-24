@@ -416,11 +416,15 @@ spmv_beta_no_transpose (const KokkosKernels::Experimental::Controls& controls,
 
   bool use_teams = KokkosKernels::Impl::kk_is_gpu_exec_space<execution_space>();
   bool use_dynamic_schedule = false; // Forces the use of a dynamic schedule
-  bool use_static_schedule  = false; // Forces the use of a static schedule
+  //bool use_static_schedule  = false; // Forces the use of a static schedule
+  bool use_static_schedule  = true; // Forces the use of a static schedule
   if(controls.isParameter("schedule")) {
+    //printf("In schedule param\n");
     if(controls.getParameter("schedule") == "dynamic") {
+      //printf("set dyn\n");
       use_dynamic_schedule = true;
     } else if(controls.getParameter("schedule") == "static") {
+      //printf("set static\n");
       use_static_schedule  = true;
     }
   }
@@ -458,11 +462,18 @@ spmv_beta_no_transpose (const KokkosKernels::Experimental::Controls& controls,
     }
   }
   else {
+    //printf("not using teams\n");
     SPMV_Functor<AMatrix,XVector,YVector,dobeta,conjugate> func (alpha,A,x,beta,y,1);
     if(((A.nnz()>10000000) || use_dynamic_schedule) && !use_static_schedule)
-      Kokkos::parallel_for("KokkosSparse::spmv<NoTranspose,Dynamic>",Kokkos::RangePolicy<execution_space, Kokkos::Schedule<Kokkos::Dynamic>>(0, A.numRows()),func);
+    {
+        //printf("dynamic\n");
+        Kokkos::parallel_for("KokkosSparse::spmv<NoTranspose,Dynamic>",Kokkos::RangePolicy<execution_space, Kokkos::Schedule<Kokkos::Dynamic>>(0, A.numRows()),func);
+    }
     else
-      Kokkos::parallel_for("KokkosSparse::spmv<NoTranspose,Static>",Kokkos::RangePolicy<execution_space, Kokkos::Schedule<Kokkos::Static>>(0, A.numRows()),func);
+    {
+        //printf("static\n");
+        Kokkos::parallel_for("KokkosSparse::spmv<NoTranspose,Static>",Kokkos::RangePolicy<execution_space, Kokkos::Schedule<Kokkos::Static>>(0, A.numRows()),func);
+    }
   }
 }
 
