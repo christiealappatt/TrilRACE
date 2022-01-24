@@ -420,7 +420,7 @@ GmresPolySolMgr (const Teuchos::RCP<LinearProblem<ScalarType,MV,OP> > &problem,
   ,
   raceVoidHandle_(raceVoidHandle_default_),
   useRACE_(useRACE_default_),
-  tunedPowerRACE_(tunedPowerRACE_default_),
+  tunedPowerRACE_(tunedPowerRACE_default_)
 #endif
 {
   TEUCHOS_TEST_FOR_EXCEPTION(
