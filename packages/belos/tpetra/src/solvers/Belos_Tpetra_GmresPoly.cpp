@@ -39,7 +39,10 @@
 
 #include "BelosSolverFactory.hpp"
 #include "BelosSolverFactory_Tpetra.hpp"
+//invoke Tpetra template specialization
+#define TPETRA_SPECIALIZATION
 #include "BelosGmresPolySolMgr.hpp"
+#undef TPETRA_SPECIALIZATION
 #include "TpetraCore_ETIHelperMacros.h"
 #include "Teuchos_TypeNameTraits.hpp"
 #include <iostream>
@@ -63,7 +66,7 @@ void register_GmresPoly_tmpl (const bool verbose)
               << TypeNameTraits<GO>::name () << ", "
               << TypeNameTraits<NT>::name () << ">" << std::endl;
   }
-  const char solverName[] = "HYBRID BLOCK GMRES";
+  const char solverName[] = "TPETRA HYBRID BLOCK GMRES";
   registerSolverSubclassForTypes<solver_type, SC, MV, OP> (solverName);
 }
 
