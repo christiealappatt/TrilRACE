@@ -112,16 +112,20 @@ apply (Kokkos::View<const mv_scalar_type**, array_layout,
   const auto op = transpose ?
     (conjugate ? KokkosSparse::ConjugateTranspose :
      KokkosSparse::Transpose) : KokkosSparse::NoTranspose;
+
+  KokkosKernels::Experimental::Controls controls;
+  controls.setParameter("schedule", "static");
+  //printf("1. Am i here\n");
   //Currently KK has no cusparse wrapper for rank-2 (SpMM)
   //TODO: whent that is supported, use A_cusparse for that case also
   if(X.extent(1) == size_t(1) && have_A_cusparse)
   {
-    KokkosSparse::spmv (op, alpha, A_cusparse, Kokkos::subview(X, Kokkos::ALL(), 0),
+     KokkosSparse::spmv (controls, op, alpha, A_cusparse, Kokkos::subview(X, Kokkos::ALL(), 0),
                             beta, Kokkos::subview(Y, Kokkos::ALL(), 0));
   }
   else
   {
-    KokkosSparse::spmv (op, alpha, *A_, X, beta, Y);
+      KokkosSparse::spmv (controls, op, alpha, *A_, X, beta, Y);
   }
 }
 
