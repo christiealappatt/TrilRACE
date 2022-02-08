@@ -4,6 +4,7 @@
 #include "RACE_CRS_raw.hpp"
 #include <RACE/interface.h>
 #include "TrilinosRACE_config.h"
+#include "RACE_SpMV.hpp"
 
 namespace RACE {
 
@@ -46,16 +47,8 @@ namespace RACE {
     std::vector<complex_type> theta = arg_decode->theta;\
     int arr_offset = arg_decode->arr_offset;\
 
-#define BASE_GmresSstepKernel_KERNEL_IN_ROW\
-    Scalar tmp = 0;\
-    _Pragma("nounroll")\
-    _Pragma("omp simd simdlen(VECTOR_LENGTH) reduction(+:tmp)")\
-    for(int idx=(int)A->rowPtr[row]; idx<(int)A->rowPtr[row+1]; ++idx)\
-    {\
-        tmp += A->val[idx]*((*x)[cur_offset][A->col[idx]]);\
-    }\
 
-    /// \brief Compute <tt>x[i+1] = theta_i*x[i] + theta_r*x[i]</tt>, where
+    // \brief Compute <tt>x[i+1] = theta_i*x[i] + theta_r*x[i]</tt>, where
     template <typename packtype>
     inline void RACE_GmresSstepKernel_KERNEL(std::true_type, int start, int end, int pow, int numa_domain, void* args)
     {
@@ -68,7 +61,7 @@ namespace RACE {
         {
             for(LocalOrdinal row=start; row<end; ++row)
             {
-                BASE_GmresSstepKernel_KERNEL_IN_ROW;
+                BASE_SpMV_KERNEL_IN_ROW(A->val, (*x)[cur_offset]);
                 (*x)[next_offset][row] = tmp;
             }
         }
@@ -76,14 +69,14 @@ namespace RACE {
         {
             for(LocalOrdinal row=start; row<end; ++row)
             {
-                BASE_GmresSstepKernel_KERNEL_IN_ROW;
+                BASE_SpMV_KERNEL_IN_ROW(A->val, (*x)[cur_offset]);
                 (*x)[next_offset][row] = tmp - theta[cur_offset]*(*x)[cur_offset][row];
             }
         }
 
     }
 
-    /// \brief Compute <tt>x[i+1] = theta_i*x[i] + theta_r*x[i]</tt>, where
+    // \brief Compute <tt>x[i+1] = theta_i*x[i] + theta_r*x[i]</tt>, where
     template <typename packtype>
     inline void RACE_GmresSstepKernel_KERNEL(std::false_type, int start, int end, int pow, int numa_domain, void* args)
     {
@@ -99,7 +92,7 @@ namespace RACE {
         {
             for(LocalOrdinal row=start; row<end; ++row)
             {
-                BASE_GmresSstepKernel_KERNEL_IN_ROW;
+                BASE_SpMV_KERNEL_IN_ROW(A->val, (*x)[cur_offset]);
                 (*x)[next_offset][row] = tmp - theta_r*(*x)[cur_offset][row];
             }
         }
@@ -107,7 +100,7 @@ namespace RACE {
         {
             for(LocalOrdinal row=start; row<end; ++row)
             {
-                BASE_GmresSstepKernel_KERNEL_IN_ROW;
+                BASE_SpMV_KERNEL_IN_ROW(A->val, (*x)[cur_offset]);
                 (*x)[next_offset][row] = tmp - theta_r*(*x)[cur_offset][row] + theta_i_sq*(*x)[prev_offset][row];
             }
         }

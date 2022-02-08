@@ -56,15 +56,6 @@ namespace RACE {
     int maxSteps = arg_decode->maxSteps;\
     int tunedPower = arg_decode->tunedPower;\
 
-#define BASE_GmresPolyPreconKernel_KERNEL_IN_ROW\
-    Scalar tmp = 0;\
-    _Pragma("nounroll")\
-    _Pragma("omp simd simdlen(VECTOR_LENGTH) reduction(+:tmp)")\
-    for(int idx=(int)A->rowPtr[row]; idx<(int)A->rowPtr[row+1]; ++idx)\
-    {\
-        tmp += A->val[idx]*((*x)[cur_offset][A->col[idx]]);\
-    }\
-
     //x stores prod
     template <typename packtype>
     inline void RACE_GmresPolyPreconKernel_KERNEL(int start, int end, int pow, int numa_domain, void* args)
@@ -84,13 +75,12 @@ namespace RACE {
             for(LocalOrdinal row=start; row<end; ++row)
             {
                 (*y)[0][row] = (*y)[0][row] + theta_r_inv*(*x)[cur_offset][row];
-                BASE_GmresPolyPreconKernel_KERNEL_IN_ROW;
+                BASE_SpMV_KERNEL_IN_ROW(A->val, (*x)[cur_offset]);
                 (*x)[next_offset][row] = (*x)[cur_offset][row] - theta_r_inv*tmp;
             }
         }
         else //if choosing this branch ensure total power is even
         {
-
             Scalar mod = theta_r*theta_r + theta_i*theta_i;
             Scalar mod_inv = 1/mod;
             const int prev_offset = ((pow-2)+arr_offset)%(tunedPower+1);
@@ -99,7 +89,7 @@ namespace RACE {
             {
                 for(LocalOrdinal row=start; row<end; ++row)
                 {
-                    BASE_GmresPolyPreconKernel_KERNEL_IN_ROW;
+                    BASE_SpMV_KERNEL_IN_ROW(A->val, (*x)[cur_offset]);;
                     (*x)[next_offset][row] = 2*theta_r*(*x)[cur_offset][row] - tmp;
                     (*y)[0][row] = (*y)[0][row] + mod_inv*(*x)[next_offset][row];
                 }
@@ -109,7 +99,7 @@ namespace RACE {
             {
                 for(LocalOrdinal row=start; row<end; ++row)
                 {
-                    BASE_GmresPolyPreconKernel_KERNEL_IN_ROW;
+                    BASE_SpMV_KERNEL_IN_ROW(A->val, (*x)[cur_offset]);
                     (*x)[next_offset][row] = (*x)[prev_offset][row] - mod_inv*tmp;
                 }
             }

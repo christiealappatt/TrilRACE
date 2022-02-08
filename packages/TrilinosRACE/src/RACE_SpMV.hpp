@@ -58,13 +58,13 @@ namespace RACE {
     Scalar beta = arg_decode->beta;\
     int arr_offset = arg_decode->arr_offset;\
 
-#define BASE_SpMV_KERNEL_IN_ROW\
+#define BASE_SpMV_KERNEL_IN_ROW(_A_, _x_vec_)\
     Scalar tmp = 0;\
     _Pragma("nounroll")\
     _Pragma("omp simd simdlen(VECTOR_LENGTH) reduction(+:tmp)")\
     for(int idx=(int)A->rowPtr[row]; idx<(int)A->rowPtr[row+1]; ++idx)\
     {\
-        tmp += A->val[idx]*((*x)[cur_offset][A->col[idx]]);\
+        tmp += (_A_)[idx]*((_x_vec_)[A->col[idx]]);\
     }\
 
     /// \brief Compute <tt>x[i+1] = beta*x[i] + alpha*x[i]</tt>, where
@@ -98,7 +98,7 @@ namespace RACE {
         {
             for(LocalOrdinal row=start; row<end; ++row)
             {
-                BASE_SpMV_KERNEL_IN_ROW;
+                BASE_SpMV_KERNEL_IN_ROW(A->val, (*x)[cur_offset]);
                 (*x)[next_offset][row] = alpha*tmp;
             }
         }
@@ -106,7 +106,7 @@ namespace RACE {
         {
             for(LocalOrdinal row=start; row<end; ++row)
             {
-                BASE_SpMV_KERNEL_IN_ROW;
+                BASE_SpMV_KERNEL_IN_ROW(A->val, (*x)[cur_offset]);
                 (*x)[next_offset][row] = beta*(*x)[next_offset][row] + alpha*tmp;
             }
         }
