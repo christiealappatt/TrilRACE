@@ -315,10 +315,10 @@ namespace Ifpack2 {
 
 #if defined(KOKKOS_ENABLE_CUDA) && defined(IFPACK2_BLOCKTRIDICONTAINER_ENABLE_PROFILE)
 #define IFPACK2_BLOCKTRIDICONTAINER_PROFILER_REGION_BEGIN \
-    CUDA_SAFE_CALL(cudaProfilerStart());
+    KOKKOS_IMPL_CUDA_SAFE_CALL(cudaProfilerStart());
 
 #define IFPACK2_BLOCKTRIDICONTAINER_PROFILER_REGION_END \
-    { CUDA_SAFE_CALL( cudaProfilerStop() ); }
+    { KOKKOS_IMPL_CUDA_SAFE_CALL( cudaProfilerStop() ); }
 #else
     /// later put vtune profiler region
 #define IFPACK2_BLOCKTRIDICONTAINER_PROFILER_REGION_BEGIN
@@ -676,7 +676,7 @@ namespace Ifpack2 {
           exec_instances.clear();
           exec_instances.resize(num_streams);
           for (local_ordinal_type i=0;i<num_streams;++i) {
-            CUDA_SAFE_CALL(cudaStreamCreateWithFlags(&stream[i], cudaStreamNonBlocking));
+            KOKKOS_IMPL_CUDA_SAFE_CALL(cudaStreamCreateWithFlags(&stream[i], cudaStreamNonBlocking));
             ExecutionSpaceFactory<execution_space>::createInstance(stream[i], exec_instances[i]);
           }
         }
@@ -688,7 +688,7 @@ namespace Ifpack2 {
         {
           const local_ordinal_type num_streams = stream.size();
           for (local_ordinal_type i=0;i<num_streams;++i)
-            CUDA_SAFE_CALL(cudaStreamDestroy(stream[i]));
+            KOKKOS_IMPL_CUDA_SAFE_CALL(cudaStreamDestroy(stream[i]));
         }
         stream.clear();
         exec_instances.clear();
@@ -1231,35 +1231,66 @@ namespace Ifpack2 {
       part2rowidx0(0) = 0;
       part2packrowidx0(0) = 0;
       local_ordinal_type pack_nrows = 0;
-      for (local_ordinal_type ip=0;ip<nparts;++ip) {
-        const auto* part = jacobi ? NULL : &partitions[p[ip]];
-        const local_ordinal_type ipnrows = jacobi ? 1 : part->size();
-        TEUCHOS_ASSERT(ip == 0 || (jacobi || ipnrows <= static_cast<local_ordinal_type>(partitions[p[ip-1]].size())));
-        TEUCHOS_TEST_FOR_EXCEPT_MSG(ipnrows == 0,
-                                    get_msg_prefix(comm)
-                                    << "partition " << p[ip]
-                                    << " is empty, which is not allowed.");
-        //assume No overlap.
-        part2rowidx0(ip+1) = part2rowidx0(ip) + ipnrows;
-        // Since parts are ordered in nonincreasing size, the size of the first
-        // part in a pack is the size for all parts in the pack.
-        if (ip % vector_length == 0) pack_nrows = ipnrows;
-        part2packrowidx0(ip+1) = part2packrowidx0(ip) + ((ip+1) % vector_length == 0 || ip+1 == nparts ? pack_nrows : 0);
-        const local_ordinal_type os = partptr(ip);
-        for (local_ordinal_type i=0;i<ipnrows;++i) {
-          const auto lcl_row = jacobi ? ip : (*part)[i];
-          TEUCHOS_TEST_FOR_EXCEPT_MSG(lcl_row < 0 || lcl_row >= A_n_lclrows,
-                                      get_msg_prefix(comm)
-                                      << "partitions[" << p[ip] << "]["
-                                      << i << "] = " << lcl_row
-                                      << " but input matrix implies limits of [0, " << A_n_lclrows-1
-                                      << "].");
-          lclrow(os+i) = lcl_row;
-          rowidx2part(os+i) = ip;
-          if (interf.row_contiguous && os+i > 0 && lclrow((os+i)-1) + 1 != lcl_row)
-            interf.row_contiguous = false;
-        }
-        partptr(ip+1) = os + ipnrows;
+      if (jacobi) {
+	for (local_ordinal_type ip=0;ip<nparts;++ip) {
+	  const local_ordinal_type ipnrows = 1;
+	  TEUCHOS_TEST_FOR_EXCEPT_MSG(ipnrows == 0,
+				      get_msg_prefix(comm)
+				      << "partition " << p[ip]
+				      << " is empty, which is not allowed.");
+	  //assume No overlap.
+	  part2rowidx0(ip+1) = part2rowidx0(ip) + ipnrows;
+	  // Since parts are ordered in nonincreasing size, the size of the first
+	  // part in a pack is the size for all parts in the pack.
+	  if (ip % vector_length == 0) pack_nrows = ipnrows;
+	  part2packrowidx0(ip+1) = part2packrowidx0(ip) + ((ip+1) % vector_length == 0 || ip+1 == nparts ? pack_nrows : 0);
+	  const local_ordinal_type os = partptr(ip);
+	  for (local_ordinal_type i=0;i<ipnrows;++i) {
+	    const auto lcl_row = ip;
+	    TEUCHOS_TEST_FOR_EXCEPT_MSG(lcl_row < 0 || lcl_row >= A_n_lclrows,
+					get_msg_prefix(comm)
+					<< "partitions[" << p[ip] << "]["
+					<< i << "] = " << lcl_row
+					<< " but input matrix implies limits of [0, " << A_n_lclrows-1
+					<< "].");
+	    lclrow(os+i) = lcl_row;
+	    rowidx2part(os+i) = ip;
+	    if (interf.row_contiguous && os+i > 0 && lclrow((os+i)-1) + 1 != lcl_row)
+	      interf.row_contiguous = false;
+	  }
+	  partptr(ip+1) = os + ipnrows;
+	}
+      } else {
+	for (local_ordinal_type ip=0;ip<nparts;++ip) {
+	  const auto* part = &partitions[p[ip]];
+	  const local_ordinal_type ipnrows = part->size();
+	  TEUCHOS_ASSERT(ip == 0 || (ipnrows <= static_cast<local_ordinal_type>(partitions[p[ip-1]].size())));
+	  TEUCHOS_TEST_FOR_EXCEPT_MSG(ipnrows == 0,
+				      get_msg_prefix(comm)
+				      << "partition " << p[ip]
+				      << " is empty, which is not allowed.");
+	  //assume No overlap.
+	  part2rowidx0(ip+1) = part2rowidx0(ip) + ipnrows;
+	  // Since parts are ordered in nonincreasing size, the size of the first
+	  // part in a pack is the size for all parts in the pack.
+	  if (ip % vector_length == 0) pack_nrows = ipnrows;
+	  part2packrowidx0(ip+1) = part2packrowidx0(ip) + ((ip+1) % vector_length == 0 || ip+1 == nparts ? pack_nrows : 0);
+	  const local_ordinal_type os = partptr(ip);
+	  for (local_ordinal_type i=0;i<ipnrows;++i) {
+	    const auto lcl_row = (*part)[i];
+	    TEUCHOS_TEST_FOR_EXCEPT_MSG(lcl_row < 0 || lcl_row >= A_n_lclrows,
+					get_msg_prefix(comm)
+					<< "partitions[" << p[ip] << "]["
+					<< i << "] = " << lcl_row
+					<< " but input matrix implies limits of [0, " << A_n_lclrows-1
+					<< "].");
+	    lclrow(os+i) = lcl_row;
+	    rowidx2part(os+i) = ip;
+	    if (interf.row_contiguous && os+i > 0 && lclrow((os+i)-1) + 1 != lcl_row)
+	      interf.row_contiguous = false;
+	  }
+	  partptr(ip+1) = os + ipnrows;
+	}
       }
 #if defined(BLOCKTRIDICONTAINER_DEBUG)
       TEUCHOS_ASSERT(partptr(nparts) == nrows);

@@ -168,18 +168,19 @@ public:
     rowIds = rowView.getRawPtr();
   }
 
-  void getCRSView(const offset_t *&offsets, const gno_t *&colIds) const
+  void getCRSView(ArrayRCP<const offset_t> &offsets, ArrayRCP<const gno_t> &colIds) const
   {
-    offsets = offset_.getRawPtr();
-    colIds = columnIds_.getRawPtr();
+    offsets = offset_;
+    colIds = columnIds_;
   }
 
-  void getCRSView(const offset_t *&offsets, const gno_t *&colIds,
-                    const scalar_t *&values) const
+  void getCRSView(ArrayRCP<const offset_t> &offsets,
+                  ArrayRCP<const gno_t> &colIds,
+                  ArrayRCP<const scalar_t> &values) const
   {
-    offsets = offset_.getRawPtr();
-    colIds = columnIds_.getRawPtr();
-    values = values_.getRawPtr();
+    offsets = offset_;
+    colIds = columnIds_;
+    values = values_;
   }
 
 
@@ -479,7 +480,7 @@ RCP<User> TpetraRowMatrixAdapter<User,UserCoord>::doMigration(
   }
 
   RCP<tcrsmatrix_t> M =
-    rcp(new tcrsmatrix_t(tmap, nnz(), Tpetra::StaticProfile));
+    rcp(new tcrsmatrix_t(tmap, nnz()));
 
   M->doImport(from, importer, Tpetra::INSERT);
   M->fillComplete();

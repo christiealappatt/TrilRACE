@@ -537,6 +537,14 @@ namespace {
       TEST_THROW(mx(Teuchos::null, 0), Xpetra::Exceptions::RuntimeError);
     }
 #endif
+#if defined(HAVE_XPETRA_TPETRA) && defined(HAVE_TPETRA_INST_HIP)
+    {
+      typedef Xpetra::EpetraMapT<GO, Kokkos::Compat::KokkosHIPWrapperNode> mm;
+      TEST_THROW(mm(10, 0, comm), Xpetra::Exceptions::RuntimeError);
+      typedef Xpetra::EpetraCrsMatrixT<GO, Kokkos::Compat::KokkosHIPWrapperNode> mx;
+      TEST_THROW(mx(Teuchos::null, 0), Xpetra::Exceptions::RuntimeError);
+    }
+#endif
 
 #endif
   }
@@ -1286,7 +1294,13 @@ namespace {
       
       // check that the local_matrix_type taken the second time is the same
       auto view3 = A->getLocalMatrixHost();
-      TEST_EQUALITY(view2.graph.row_map.data(), view3.graph.row_map.data());
+      // The row pointer is only identical for Tpetra. For Epetra, the
+      // rowptr has a different type than what the local matrix wants,
+      // so we are copying to a new Kokkos view..
+      if (map->lib() == Xpetra::UseTpetra)
+        TEST_EQUALITY(view2.graph.row_map.data(), view3.graph.row_map.data());
+      TEST_EQUALITY(view2.graph.entries.data(), view3.graph.entries.data());
+      TEST_EQUALITY(view2.values.data(), view3.values.data());
 
       for (LO r = 0; r < view2.numRows(); ++r) {
 	// extract data from current row r
@@ -1323,9 +1337,7 @@ namespace {
       TEST_EQUALITY(values[0], FORTY_TWO);  // changes in the view also changes matrix values
     }
 
-    A->resumeFill();
     A->setAllToScalar(-123.4);
-    A->fillComplete();
 
     {
       auto view2 = A->getLocalMatrixHost();

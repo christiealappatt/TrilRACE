@@ -480,10 +480,14 @@ public:
                                   missing += (offsets(i) == STINV);
                                 }, numMissingDiagonalEntries);
 
-        if (numMissingDiagonalEntries == 0) {
+        GlobalOrdinal gNumMissingDiagonalEntries;
+        Teuchos::reduceAll(*(Ac->getRowMap()->getComm()), Teuchos::REDUCE_SUM, Teuchos::as<GlobalOrdinal>(numMissingDiagonalEntries),
+                             Teuchos::outArg(gNumMissingDiagonalEntries));
+
+        if (gNumMissingDiagonalEntries == 0) {
           // Matrix has all diagonal entries, now we fix them
 
-          auto lclA = tpCrsAc->getLocalMatrixDevice();
+          auto lclA = tpCrsAc->getTpetra_CrsMatrix()->getLocalMatrixDevice();
 
           using ATS      = Kokkos::ArithTraits<Scalar>;
           using impl_ATS = Kokkos::ArithTraits<typename ATS::val_type>;
@@ -510,7 +514,7 @@ public:
         // We only want to count up small diagonal entries, but not
         // fix them. So missing diagonal entries are not an issue.
 
-        auto lclA = tpCrsAc->getLocalMatrixDevice();
+        auto lclA = tpCrsAc->getTpetra_CrsMatrix()->getLocalMatrixDevice();
 
         using ATS      = Kokkos::ArithTraits<Scalar>;
         using impl_ATS = Kokkos::ArithTraits<typename ATS::val_type>;

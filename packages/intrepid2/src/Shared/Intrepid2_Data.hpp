@@ -152,6 +152,32 @@ namespace Intrepid2 {
     return combinedDimensionInfo;
   }
 
+/**
+\class  Intrepid2::ZeroView
+\brief  A singleton class for a DynRankView containing exactly one zero entry.  (Technically, the entry is DataScalar(), the default value for the scalar type.)  This allows View-wrapping classes to return a reference to zero, even when that zero is not explicitly stored in the wrapped views.
+ 
+This is used by Interpid2::Data for its getEntry() and getWritableEntry() methods.
+ 
+ \note There is no protection against the zero value being overwritten; perhaps we should add some (i.e., const-qualify DataScalar).  Because of implementation details in Intrepid2::Data, we don't do so yet.
+ */
+template<class DataScalar,typename DeviceType>
+class ZeroView {
+public:
+  static ScalarView<DataScalar,DeviceType> zeroView()
+  {
+    static ScalarView<DataScalar,DeviceType> zeroView = ScalarView<DataScalar,DeviceType>("zero",1);
+    static bool havePushedFinalizeHook = false;
+    if (!havePushedFinalizeHook)
+    {
+      Kokkos::push_finalize_hook( [=] {
+        zeroView = ScalarView<DataScalar,DeviceType>();
+      });
+      havePushedFinalizeHook = true;
+    }
+    return zeroView;
+  }
+};
+
     /**
       \class  Intrepid2::Data
       \brief  Wrapper around a Kokkos::View that allows data that is constant or repeating in various logical dimensions to be stored just once, while providing a similar interface to that of View.
@@ -243,14 +269,12 @@ namespace Intrepid2 {
     //! class initialization method.  Called by constructors.
     void setActiveDims()
     {
+      zeroView_ = ZeroView<DataScalar,DeviceType>::zeroView(); // one-entry (zero); used to allow getEntry() to return 0 for off-diagonal entries in BLOCK_PLUS_DIAGONAL
       // check that rank is compatible with the claimed extents:
       for (int d=rank_; d<7; d++)
       {
         INTREPID2_TEST_FOR_EXCEPTION(extents_[d] > 1, std::invalid_argument, "Nominal extents may not be > 1 in dimensions beyond the rank of the container");
       }
-      
-      // by default, this should initialize with zero -- no need to deep_copy a 0 into it
-      zeroView_ = ScalarView<DataScalar,DeviceType>("zero",1);
       
       numActiveDims_ = 0;
       int blockPlusDiagonalCount = 0;
@@ -1631,6 +1655,21 @@ namespace Intrepid2 {
     //! Copies 0.0 to the underlying View.
     void clear() const
     {
+#ifdef KOKKOS_COMPILER_INTEL
+// Workaround intel internal compiler errors
+      DataScalar zero = DataScalar(0);
+      switch (dataRank_)
+      {
+        case 1: {Kokkos::parallel_for(Kokkos::RangePolicy<execution_space>(0, data1_.extent_int(0)), KOKKOS_LAMBDA(int i) {data1_(i) = zero;}); break; }
+        case 2: {Kokkos::parallel_for(Kokkos::MDRangePolicy<Kokkos::Rank<2>, execution_space>({0,0},{data2_.extent_int(0),data2_.extent_int(1)}), KOKKOS_LAMBDA(int i0, int i1) {data2_(i0, i1) =  zero;}); break; }
+        case 3: {Kokkos::parallel_for(Kokkos::MDRangePolicy<Kokkos::Rank<3>, execution_space>({0,0,0},{data3_.extent_int(0),data3_.extent_int(1),data3_.extent_int(2)}), KOKKOS_LAMBDA(int i0, int i1, int i2) {data3_(i0, i1, i2) =  zero;}); break; }
+        case 4: {Kokkos::parallel_for(Kokkos::MDRangePolicy<Kokkos::Rank<4>, execution_space>({0,0,0,0},{data4_.extent_int(0),data4_.extent_int(1),data4_.extent_int(2),data4_.extent_int(3)}), KOKKOS_LAMBDA(int i0, int i1, int i2, int i3) {data4_(i0, i1, i2, i3) =  zero;}); break; }
+        case 5: {Kokkos::parallel_for(Kokkos::MDRangePolicy<Kokkos::Rank<5>, execution_space>({0,0,0,0,0},{data5_.extent_int(0),data5_.extent_int(1),data5_.extent_int(2),data5_.extent_int(3),data5_.extent_int(4)}), KOKKOS_LAMBDA(int i0, int i1, int i2, int i3, int i4) {data5_(i0, i1, i2, i3, i4) =  zero;}); break; }
+        case 6: {Kokkos::parallel_for(Kokkos::MDRangePolicy<Kokkos::Rank<6>, execution_space>({0,0,0,0,0,0},{data6_.extent_int(0),data6_.extent_int(1),data6_.extent_int(2),data6_.extent_int(3),data6_.extent_int(4),data6_.extent_int(5)}), KOKKOS_LAMBDA(int i0, int i1, int i2, int i3, int i4, int i5) {data6_(i0, i1, i2, i3, i4, i5) =  zero;}); break; }
+        case 7: {Kokkos::parallel_for(Kokkos::MDRangePolicy<Kokkos::Rank<6>, execution_space>({0,0,0,0,0,0},{data7_.extent_int(0),data7_.extent_int(1),data7_.extent_int(2),data7_.extent_int(3),data7_.extent_int(4),data7_.extent_int(5)}), KOKKOS_LAMBDA(int i0, int i1, int i2, int i3, int i4, int i5 ) {for (int i6 = 0; i6 < data7_.extent_int(6); ++i6) data7_(i0, i1, i2, i3, i4, i5, i6) =  zero;}); break; }
+        default: INTREPID2_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Invalid data rank");
+      }
+#else
       switch (dataRank_)
       {
         case 1: Kokkos::deep_copy(data1_, 0.0); break;
@@ -1642,6 +1681,7 @@ namespace Intrepid2 {
         case 7: Kokkos::deep_copy(data7_, 0.0); break;
         default: INTREPID2_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Invalid data rank");
       }
+#endif
     }
     
     //! Copies from the provided DynRankView into the underlying Kokkos::View container storing the unique data.

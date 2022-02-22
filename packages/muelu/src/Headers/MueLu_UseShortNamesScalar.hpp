@@ -248,6 +248,9 @@ typedef MueLu::RebalanceTransferFactory<Scalar,LocalOrdinal,GlobalOrdinal,Node> 
 #ifdef MUELU_REGIONRFACTORY_SHORT
 typedef MueLu::RegionRFactory<Scalar,LocalOrdinal,GlobalOrdinal,Node> RegionRFactory;
 #endif
+#ifdef MUELU_REITZINGERPFACTORY_SHORT
+typedef MueLu::ReitzingerPFactory<Scalar,LocalOrdinal,GlobalOrdinal,Node> ReitzingerPFactory;
+#endif
 #ifdef MUELU_REORDERBLOCKAFACTORY_SHORT
 typedef MueLu::ReorderBlockAFactory<Scalar,LocalOrdinal,GlobalOrdinal,Node> ReorderBlockAFactory;
 #endif
@@ -350,6 +353,9 @@ typedef MueLu::TpetraOperator<Scalar,LocalOrdinal,GlobalOrdinal,Node> TpetraOper
 #ifdef MUELU_TRANSPFACTORY_SHORT
 typedef MueLu::TransPFactory<Scalar,LocalOrdinal,GlobalOrdinal,Node> TransPFactory;
 #endif
+#ifdef MUELU_RFROMP_OR_TRANSP_SHORT
+typedef MueLu::RfromP_Or_TransP<Scalar,LocalOrdinal,GlobalOrdinal,Node> RfromP_Or_TransP;
+#endif
 #ifdef MUELU_TRILINOSSMOOTHER_SHORT
 typedef MueLu::TrilinosSmoother<Scalar,LocalOrdinal,GlobalOrdinal,Node> TrilinosSmoother;
 #endif
@@ -373,6 +379,9 @@ typedef MueLu::VariableDofLaplacianFactory<Scalar,LocalOrdinal,GlobalOrdinal,Nod
 #endif
 #ifdef MUELU_SEMICOARSENPFACTORY_SHORT
 typedef MueLu::SemiCoarsenPFactory<Scalar,LocalOrdinal,GlobalOrdinal,Node> SemiCoarsenPFactory;
+#endif
+#ifdef MUELU_SEMICOARSENPFACTORY_KOKKOS_SHORT
+typedef MueLu::SemiCoarsenPFactory_kokkos<Scalar,LocalOrdinal,GlobalOrdinal,Node> SemiCoarsenPFactory_kokkos;
 #endif
 #ifdef MUELU_UZAWASMOOTHER_SHORT
 typedef MueLu::UzawaSmoother<Scalar,LocalOrdinal,GlobalOrdinal,Node> UzawaSmoother;

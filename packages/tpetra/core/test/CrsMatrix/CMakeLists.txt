@@ -48,6 +48,15 @@ TRIBITS_ADD_EXECUTABLE_AND_TEST(
   )
 
 TRIBITS_ADD_EXECUTABLE_AND_TEST(
+  CrsMatrix_UnitTests_LocalAccessors
+  SOURCES
+    CrsMatrix_UnitTests_LocalAccessors
+    ${TEUCHOS_STD_UNIT_TEST_MAIN}
+  COMM serial mpi
+  STANDARD_PASS_OUTPUT
+  )
+
+TRIBITS_ADD_EXECUTABLE_AND_TEST(
   CrsMatrix_UnitTests_Swap
   SOURCES
     CrsMatrix_UnitTests_Swap
@@ -175,6 +184,17 @@ TRIBITS_ADD_EXECUTABLE_AND_TEST(
   COMM serial mpi
   STANDARD_PASS_OUTPUT
   )
+
+TRIBITS_ADD_EXECUTABLE_AND_TEST(
+  CrsMatrix_ReplaceRangeMapAndExporter
+  SOURCES
+    CrsMatrix_ReplaceRangeMapAndExporter
+    ${TEUCHOS_STD_UNIT_TEST_MAIN}
+  ARGS ""
+  COMM serial mpi
+  STANDARD_PASS_OUTPUT
+  )
+
 
 TRIBITS_COPY_FILES_TO_BINARY_DIR(CrsMatrixCopyFiles1
   SOURCE_FILES west0067.rua mhd1280b.cua

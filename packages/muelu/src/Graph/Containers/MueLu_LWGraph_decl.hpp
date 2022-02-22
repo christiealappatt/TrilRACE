@@ -48,6 +48,7 @@
 
 #include <Xpetra_ConfigDefs.hpp>   // global_size_t
 #include <Xpetra_CrsGraph.hpp>     // inline functions requires class declaration
+#include <Xpetra_CrsGraphFactory.hpp>
 #include <Xpetra_Map_fwd.hpp>
 
 #include "MueLu_ConfigDefs.hpp"
@@ -154,6 +155,17 @@ namespace MueLu {
     //void describe(Teuchos::FancyOStream &out, const VerbLevel verbLevel = Default) const;;
     void print(Teuchos::FancyOStream &out, const VerbLevel verbLevel = Default) const;
 
+
+    RCP<CrsGraph> GetCrsGraph() const {
+      ArrayRCP<size_t> rowPtrs;
+      rowPtrs.resize(rows_.size());
+      for (size_t i=0; i<Teuchos::as<size_t>(rows_.size()); i++)
+        rowPtrs[i] = rows_[i];
+      auto graph =  Xpetra::CrsGraphFactory<LocalOrdinal,GlobalOrdinal,Node>::Build(GetDomainMap(), GetImportMap(), rowPtrs, Teuchos::arcp_const_cast<LO>(getEntries()));
+      graph->fillComplete();
+      return graph;
+    }
+
   private:
 
     //! Indices into columns_ array.  Part of local graph information.
@@ -164,7 +176,7 @@ namespace MueLu {
     const RCP<const Map> domainMap_, importMap_;
     const Map& domainMapRef_;
     //! Name of this graph.
-    const std::string & objectLabel_;
+    const std::string objectLabel_;
     //! Boolean array marking Dirichlet rows.
     ArrayRCP<const bool> dirichletBoundaries_;
 

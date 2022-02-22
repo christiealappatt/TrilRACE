@@ -80,6 +80,7 @@ PARALLEL_IO_MODE | netcdf4, hdf5, pnetcdf, (mpiio and mpiposix are deprecated)
 --------------------------|:--------:|-----------------------------------------------------------
  ENABLE_FIELD_RECOGNITION | [on]/off | Does the IOSS library combine scalar fields into higher-order fields (tensor, vector) based on suffix interpretation.
  FIELD_SUFFIX_SEPARATOR   | char / '_'| The character that is used to separate the base field name from the suffix.  Default is underscore.
+ FIELD_STRIP_TRAILING_UNDERSCORE | on / [off] | If `FIELD_SUFFIX_SEPARATOR` is empty and there are fields that end with an underscore, then strip the underscore. (`a_x`, `a_y`, `a_z` is vector field `a`).
  IGNORE_ATTRIBUTE_NAMES   | on/[off] | Do not read the attribute names that may exist on an input database. Instead for an element block with N attributes, the fields will be named `attribute_1` ... `attribute_N`
 ## Properties related to underlying file type (exodus only)
 
@@ -87,7 +88,7 @@ PARALLEL_IO_MODE | netcdf4, hdf5, pnetcdf, (mpiio and mpiposix are deprecated)
  Property        | Value  | Description
 -----------------|:------:|-----------------------------------------------------------
  OMIT_QA_RECORDS | on/[off] | Do not output any QA records to the output database.
- OMIT_INFO_RECORDS | on/[off] | Do not output any INFO records to the output database. 
+ OMIT_INFO_RECORDS | on/[off] | Do not output any INFO records to the output database.
  RETAIN_EMPTY_BLOCKS | on/[off] | If an element block is completely empty (on all ranks) should it be written to the output database.
  VARIABLE_NAME_CASE | upper/lower | Should all output field names be converted to uppercase or lowercase. Default is leave as is.
  FILE_TYPE             | [netcdf], netcdf4, netcdf-4, hdf5 | Underlying file type (bits on disk format)
@@ -107,9 +108,11 @@ PARALLEL_IO_MODE | netcdf4, hdf5, pnetcdf, (mpiio and mpiposix are deprecated)
 ## Properties for the heartbeat output
  Property              | Value  | Description
 -----------------------|:------:|-----------------------------------------------------------
+  FILE_FORMAT          | [default], spyhis, csv, ts_csv, text, ts_text | predefined formats for heartbeat output. `ts_` outputs timestamp.
   FLUSH_INTERVAL       | int   | Minimum time interval between flushing heartbeat data to disk.  Default is 10 seconds
   TIME_STAMP_FORMAT    | [%H:%M:%S] | Format used to format time stamp.  See strftime man page
   SHOW_TIME_STAMP      | on/off | Should the output lines be preceded by the timestamp
+  FIELD_SEPARATOR      | [, ]   | separator to be used between output fields.
   PRECISION            | 0..16 [5] | Precision used for floating point output.
   FIELD_WIDTH          | 0.. |  Width of an output field. If 0, then use natural width.
   SHOW_LABELS          | on/[off]  | Should each field be preceded by its name (ke=1.3e9, ie=2.0e9)
@@ -124,7 +127,7 @@ MEMORY_READ        | on/[off]   | experimental
 MEMORY_WRITE       | on/[off]   | experimental
 ENABLE_FILE_GROUPS | on/[off]   | experimental
 MINIMAL_NEMESIS_INFO | on/[off] | special case, omit all nemesis data except for nodal communication map
-OMIT_EXODUS_NUM_MAPS | on/[off] | special case, do not output the node and element numbering map. 
+OMIT_EXODUS_NUM_MAPS | on/[off] | special case, do not output the node and element numbering map.
 
 
 ## Debugging / Profiling

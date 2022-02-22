@@ -288,6 +288,7 @@ Thyra::ModelEvaluatorBase::OutArgs<Scalar> Piro::SteadyStateSolver<Scalar>::crea
     }
   }
 
+#ifdef Thyra_BUILD_HESSIAN_SUPPORT
   for (int i=0; i<num_g_; i++) {
     for (int j1=0; j1<num_p_; j1++) {
       for (int j2=0; j2<num_p_; j2++) {
@@ -299,6 +300,7 @@ Thyra::ModelEvaluatorBase::OutArgs<Scalar> Piro::SteadyStateSolver<Scalar>::crea
       }
     }
   }
+#endif  // ifdef Thyra_BUILD_HESSIAN_SUPPORT
 
   return result;
 }
@@ -541,6 +543,7 @@ void Piro::SteadyStateSolver<Scalar>::evalConvergedModelResponsesAndSensitivitie
       }
     }
   } else if(computeAdjointSensitivities) {
+
     // Compute adjoint layouts of df/dp, dg/dx depending on
     for (int i=0; i<num_p_; i++) {
       // p
@@ -900,6 +903,13 @@ void Piro::SteadyStateSolver<Scalar>::evalConvergedModelResponsesAndSensitivitie
     }
   } else if (computeAdjointSensitivities) {
 
+    bool explicitlyTransposeMatrix = appParams.isParameter("Enable Explicit Matrix Transpose") ?
+        appParams.get<bool>("Enable Explicit Matrix Transpose") :
+        false;
+
+    if(explicitlyTransposeMatrix)
+      appParams.sublist("Optimization Status").set("Compute Transposed Jacobian", true);
+
     // Create implicitly transpose Jacobian and preconditioner
     Teuchos::RCP< const Thyra::LinearOpWithSolveFactoryBase<double> > lows_factory = model_->get_W_factory();
     TEUCHOS_ASSERT(Teuchos::nonnull(lows_factory));
@@ -937,15 +947,24 @@ void Piro::SteadyStateSolver<Scalar>::evalConvergedModelResponsesAndSensitivitie
       model_->evalModel(in_args, out_args);
     }
 
-    if(Teuchos::nonnull(prec))
-      Thyra::initializePreconditionedOp<double>(*lows_factory,
-          Thyra::transpose<double>(lop),
-          Thyra::unspecifiedPrec<double>(::Thyra::transpose<double>(prec->getUnspecifiedPrecOp())),
+    if(Teuchos::nonnull(prec)) {
+      if(explicitlyTransposeMatrix) {
+        Thyra::initializePreconditionedOp<double>(*lows_factory,
+          lop,
+          prec,
           jacobian.ptr());
-    else
-      Thyra::initializeOp<double>(*lows_factory,
-          Thyra::transpose<double>(lop),
-          jacobian.ptr());
+      } else {
+        Thyra::initializePreconditionedOp<double>(*lows_factory,
+            Thyra::transpose<double>(lop),
+            Thyra::unspecifiedPrec<double>(::Thyra::transpose<double>(prec->getUnspecifiedPrecOp())),
+            jacobian.ptr());
+      }
+    } else {
+      if(explicitlyTransposeMatrix)
+        Thyra::initializeOp<double>(*lows_factory, lop, jacobian.ptr());
+      else
+        Thyra::initializeOp<double>(*lows_factory, Thyra::transpose<double>(lop), jacobian.ptr());
+    }
 
 
     for (int j=0; j<num_g_; j++) {
@@ -1138,6 +1157,8 @@ void Piro::SteadyStateSolver<Scalar>::evalConvergedModelResponsesAndSensitivitie
         }
       }
     }
+    if(explicitlyTransposeMatrix)
+      appParams.sublist("Optimization Status").set("Compute Transposed Jacobian", false);
   }
 }
 

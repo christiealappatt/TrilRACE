@@ -83,7 +83,6 @@
 #include "SidesetTranslator.hpp"
 #include "StkIoUtils.hpp"
 #include "mpi.h"                                     // for MPI_COMM_SELF
-#include "stk_mesh/base/BulkDataInlinedMethods.hpp"
 #include "stk_mesh/base/Entity.hpp"                  // for Entity
 #include "stk_mesh/base/FieldBase.hpp"               // for FieldBase, etc
 #include "stk_mesh/base/FieldRestriction.hpp"
@@ -93,6 +92,8 @@
 #include "stk_util/util/ReportHandler.hpp"           // for ThrowRequireMsg, etc
 #include "stk_util/environment/EnvData.hpp"
 #include "stk_util/util/string_case_compare.hpp"
+#include "stk_util/util/string_utils.hpp"
+
 namespace stk { namespace mesh { class Bucket; } }
 // clang-format on
 // #######################   End Clang Header Tool Managed Headers  ########################
@@ -157,7 +158,7 @@ namespace stk {
           else
             return stk::mesh::InvalidEntityRank;
         }
-      
+
       case Ioss::FACEBLOCK:
         return stk::topology::FACE_RANK;
 
@@ -206,7 +207,7 @@ namespace {
     const bool ioFieldTypeIsRecognized = (ioFieldType == Ioss::Field::INTEGER) || (ioFieldType == Ioss::Field::INT64)
                                       || (ioFieldType == Ioss::Field::REAL)    || (ioFieldType == Ioss::Field::COMPLEX);
     ThrowRequireMsg(ioFieldTypeIsRecognized, "Unrecognized field type for IO field '"<<io_field.get_name()<<"'");
- 
+
     return stk::io::impl::declare_stk_field_internal(meta, type, part, io_field, use_cartesian_for_scalar);
   }
 
@@ -503,17 +504,23 @@ const stk::mesh::FieldBase *declare_stk_field_internal(stk::mesh::MetaData &meta
 
     if (field_type == "scalar" || num_components == 1) {
       if (!use_cartesian_for_scalar) {
-        stk::mesh::Field<double> & field = meta.declare_field<stk::mesh::Field<double> >(entity_rank, name);
+        stk::mesh::Field<double> & field = meta.declare_field<stk::mesh::Field<double>>(entity_rank, name);
         stk::mesh::put_field_on_mesh(field, part,
                                      (stk::mesh::FieldTraits<stk::mesh::Field<double>>::data_type*) nullptr);
         field_ptr = &field;
       } else {
         stk::mesh::Field<double, stk::mesh::Cartesian> & field =
-          meta.declare_field<stk::mesh::Field<double, stk::mesh::Cartesian> >(entity_rank, name);
+          meta.declare_field<stk::mesh::Field<double, stk::mesh::Cartesian>>(entity_rank, name);
         stk::mesh::put_field_on_mesh(field, part, 1,
                                      (stk::mesh::FieldTraits<stk::mesh::Field<double, stk::mesh::Cartesian>>::data_type*) nullptr);
         field_ptr = &field;
       }
+    }
+    else if (stk::string_starts_with(sierra::make_lower(field_type), "real[")) {
+      stk::mesh::Field<double> & field = meta.declare_field<stk::mesh::Field<double>>(entity_rank, name);
+      stk::mesh::put_field_on_mesh(field, part, num_components,
+                                   (stk::mesh::FieldTraits<stk::mesh::Field<double>>::data_type*) nullptr);
+      field_ptr = &field;
     }
     else if ((field_type == "vector_2d") || (field_type == "vector_3d")) {
       field_ptr = add_stk_field<stk::mesh::Cartesian>(meta, name, entity_rank, part, num_components);
@@ -804,7 +811,7 @@ const stk::mesh::FieldBase *declare_stk_field_internal(stk::mesh::MetaData &meta
       return 0;
     }
 
-    Ioss::GroupingEntity* get_grouping_entity(const Ioss::Region& region, stk::mesh::Part& part) 
+    Ioss::GroupingEntity* get_grouping_entity(const Ioss::Region& region, stk::mesh::Part& part)
     {
       if(!stk::io::is_part_io_part(part)) { return nullptr; }
 
@@ -1169,6 +1176,7 @@ const stk::mesh::FieldBase *declare_stk_field_internal(stk::mesh::MetaData &meta
         mesh::MetaData & meta = mesh::MetaData::get(part);
         bool success = meta.remove_attribute(part, ioPartAttr);
         ThrowRequireMsg(success, "stk::io::remove_io_part_attribute(" << part.name() << ") FAILED.");
+        delete ioPartAttr;
       }
     }
 
@@ -2090,10 +2098,23 @@ const stk::mesh::FieldBase *declare_stk_field_internal(stk::mesh::MetaData &meta
         const Ioss::ElementTopology *element_topo = nullptr;
         stk::topology stk_element_topology = stk::topology::INVALID_TOPOLOGY;
         if (tokens.size() >= 4) {
-          // Name of form: "name_eltopo_sidetopo_id" or
-          //               "name_block_id_sidetopo_id"
-          // "name" is typically "surface".
-          element_topo = Ioss::ElementTopology::factory(tokens[1], true);
+	  // If the sideset has a "canonical" name as in "surface_{id}",
+	  // Then the sideblock name will be of the form:
+          //  * "surface_eltopo_sidetopo_id" or
+          //  * "surface_block_id_sidetopo_id"
+	  // If the sideset does *not* have a canonical name, then
+	  // the sideblock name will be of the form:
+	  //  * "{sideset_name}_eltopo_sidetopo" or
+	  //  * "{sideset_name}_block_id_sidetopo"
+
+	  // Check the last token and see if it is an integer...
+	  bool all_dig = tokens.back().find_first_not_of("0123456789") == std::string::npos;
+	  if (all_dig) {
+	    element_topo = Ioss::ElementTopology::factory(tokens[1], true);
+	  }
+	  else {
+	    element_topo = Ioss::ElementTopology::factory(tokens[tokens.size() - 2], true);
+	  }
 
           if (element_topo != nullptr) {
             element_topo_name = element_topo->name();
@@ -3437,7 +3458,11 @@ const stk::mesh::FieldBase *declare_stk_field_internal(stk::mesh::MetaData &meta
                                        const stk::mesh::FieldBase &df_field)
     {
       stk::mesh::MetaData &m = mesh::MetaData::get(p);
-      m.declare_attribute_no_delete(p,&df_field);
+      if (const stk::mesh::FieldBase * existingDistFactField = p.attribute<stk::mesh::FieldBase>()) {
+        m.remove_attribute(p, existingDistFactField);
+      }
+
+      m.declare_attribute_no_delete(p, &df_field);
     }
 
     const Ioss::Field::RoleType* get_field_role(const stk::mesh::FieldBase &f)
@@ -3630,7 +3655,7 @@ const stk::mesh::FieldBase *declare_stk_field_internal(stk::mesh::MetaData &meta
         }
     }
 
-    void put_field_data(stk::mesh::BulkData &bulk, 
+    void put_field_data(stk::mesh::BulkData &bulk,
                         stk::io::OutputParams& params,
                         stk::mesh::Part &part,
                         stk::mesh::EntityRank part_type,

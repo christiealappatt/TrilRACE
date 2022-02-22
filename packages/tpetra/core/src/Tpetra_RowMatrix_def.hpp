@@ -201,11 +201,10 @@ namespace Tpetra {
       }
       // Construct the result matrix C.
       if (constructorSublist.is_null ()) {
-        C = rcp (new crs_matrix_type (C_rowMap, C_maxNumEntriesPerRow (),
-                                      StaticProfile));
+        C = rcp (new crs_matrix_type (C_rowMap, C_maxNumEntriesPerRow ()));
       } else {
         C = rcp (new crs_matrix_type (C_rowMap, C_maxNumEntriesPerRow (),
-                                      StaticProfile, constructorSublist));
+                                      constructorSublist));
       }
       // Since A and B have the same row Maps, we could add them
       // together all at once and merge values before we call
@@ -302,8 +301,7 @@ namespace Tpetra {
   pack (const Teuchos::ArrayView<const LocalOrdinal>& exportLIDs,
         Teuchos::Array<char>& exports,
         const Teuchos::ArrayView<size_t>& numPacketsPerLID,
-        size_t& constantNumPackets,
-        Distributor &distor) const
+        size_t& constantNumPackets) const
   {
 #ifdef HAVE_TPETRA_DEBUG
     const char tfecfFuncName[] = "pack: ";
@@ -313,7 +311,7 @@ namespace Tpetra {
       int lclBad = 0;
       try {
         this->packImpl (exportLIDs, exports, numPacketsPerLID,
-                        constantNumPackets, distor);
+                        constantNumPackets);
       } catch (std::exception& e) {
         lclBad = 1;
         msg << e.what ();
@@ -342,7 +340,7 @@ namespace Tpetra {
     }
 #else
     this->packImpl (exportLIDs, exports, numPacketsPerLID,
-                    constantNumPackets, distor);
+                    constantNumPackets);
 #endif // HAVE_TPETRA_DEBUG
   }
 
@@ -491,8 +489,7 @@ namespace Tpetra {
   packImpl (const Teuchos::ArrayView<const LocalOrdinal>& exportLIDs,
             Teuchos::Array<char>& exports,
             const Teuchos::ArrayView<size_t>& numPacketsPerLID,
-            size_t& constantNumPackets,
-            Distributor& /* distor */) const
+            size_t& constantNumPackets) const
   {
     using Teuchos::Array;
     using Teuchos::ArrayView;

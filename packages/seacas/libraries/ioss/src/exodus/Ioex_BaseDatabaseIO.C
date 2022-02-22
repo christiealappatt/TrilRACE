@@ -1,4 +1,4 @@
-// Copyright(C) 1999-2021 National Technology & Engineering Solutions
+// Copyright(C) 1999-2022 National Technology & Engineering Solutions
 // of Sandia, LLC (NTESS).  Under the terms of Contract DE-NA0003525 with
 // NTESS, the U.S. Government retains certain rights in this software.
 //
@@ -89,8 +89,7 @@ namespace {
   void check_attribute_index_order(Ioss::GroupingEntity *block);
 
   template <typename T>
-  void write_attribute_names(int exoid, ex_entity_type type, const std::vector<T *> &entities,
-                             char suffix_separator);
+  void write_attribute_names(int exoid, ex_entity_type type, const std::vector<T *> &entities);
 
   template <typename T>
   void generate_block_truth_table(Ioex::VariableNameMap &variables, Ioss::IntVector &truth_table,
@@ -100,7 +99,7 @@ namespace {
 
 namespace Ioex {
   BaseDatabaseIO::BaseDatabaseIO(Ioss::Region *region, const std::string &filename,
-                                 Ioss::DatabaseUsage db_usage, MPI_Comm communicator,
+                                 Ioss::DatabaseUsage db_usage, Ioss_MPI_Comm communicator,
                                  const Ioss::PropertyManager &props)
       : Ioss::DatabaseIO(region, filename, db_usage, communicator, props)
   {
@@ -513,7 +512,7 @@ namespace Ioex {
     // See if the client added any "information_records"
     size_t info_rec_size = informationRecords.size();
     size_t in_lines      = input_lines.size();
-    size_t qa_lines      = 2; // Platform info and Version info...
+    size_t qa_lines      = 1; // Platform info
     size_t config_lines  = lines.size();
 
     size_t total_lines = in_lines + qa_lines + info_rec_size + config_lines;
@@ -523,8 +522,6 @@ namespace Ioex {
 
     int i = 0;
     Ioss::Utils::copy_string(info[i++], Ioss::Utils::platform_information(), max_line_length + 1);
-
-    Ioss::Utils::copy_string(info[i++], Ioex::Version(), max_line_length + 1);
 
     // Copy input file lines into 'info' array...
     for (size_t j = 0; j < input_lines.size(); j++, i++) {
@@ -839,7 +836,7 @@ namespace Ioex {
   }
 
   // common
-  void BaseDatabaseIO::compute_block_membership__(Ioss::SideBlock *         efblock,
+  void BaseDatabaseIO::compute_block_membership__(Ioss::SideBlock          *efblock,
                                                   std::vector<std::string> &block_membership) const
   {
     const Ioss::ElementBlockContainer &element_blocks = get_region()->get_element_blocks();
@@ -881,7 +878,7 @@ namespace Ioex {
       util().global_array_minmax(block_ids, Ioss::ParallelUtils::DO_MAX);
     }
 
-    for (const auto block : element_blocks) {
+    for (const auto &block : element_blocks) {
       size_t block_order = block->get_property("original_block_order").get_int();
       assert(block_order < block_ids.size());
       if (block_ids[block_order] == 1) {
@@ -980,14 +977,12 @@ namespace Ioex {
       size_t offset = 0;
       for (const auto &block : blocks) {
         // Get names of all transient and reduction fields...
-        Ioss::NameList results_fields;
-        block->field_describe(Ioss::Field::TRANSIENT, &results_fields);
+        Ioss::NameList results_fields = block->field_describe(Ioss::Field::TRANSIENT);
         block->field_describe(Ioss::Field::REDUCTION, &results_fields);
 
         for (const auto &fn : results_fields) {
-          Ioss::Field               field     = block->get_field(fn);
-          const Ioss::VariableType *var_type  = field.transformed_storage();
-          Ioss::Field::BasicType    ioss_type = field.get_type();
+          Ioss::Field            field     = block->get_field(fn);
+          Ioss::Field::BasicType ioss_type = field.get_type();
 
           int re_im = 1;
           if (ioss_type == Ioss::Field::COMPLEX) {
@@ -999,8 +994,9 @@ namespace Ioex {
               field_name += complex_suffix[complex_comp];
             }
 
-            for (int i = 1; i <= var_type->component_count(); i++) {
-              std::string var_string = var_type->label_name(field_name, i, field_suffix_separator);
+            for (int i = 1; i <= field.get_component_count(Ioss::Field::InOut::INPUT); i++) {
+              std::string var_string =
+                  field.get_component_name(i, Ioss::Field::InOut::INPUT, field_suffix_separator);
               // Find position of 'var_string' in 'variables'
               auto VN = variables.find(var_string);
               if (VN != variables.end()) {
@@ -1019,8 +1015,6 @@ namespace Ioex {
   void BaseDatabaseIO::store_reduction_field(ex_entity_type type, const Ioss::Field &field,
                                              const Ioss::GroupingEntity *ge, void *variables) const
   {
-    const Ioss::VariableType *var_type = field.transformed_storage();
-
     Ioss::Field::BasicType ioss_type = field.get_type();
     assert(ioss_type == Ioss::Field::REAL || ioss_type == Ioss::Field::INTEGER ||
            ioss_type == Ioss::Field::INT64 || ioss_type == Ioss::Field::COMPLEX);
@@ -1043,7 +1037,7 @@ namespace Ioex {
     // get number of components, cycle through each component
     // and add suffix to base 'field_name'.  Look up index
     // of this name in 'm_variables[EX_GLOBAL]' map
-    int comp_count = var_type->component_count();
+    int comp_count = field.get_component_count(Ioss::Field::InOut::OUTPUT);
     int var_index  = 0;
 
     int re_im = 1;
@@ -1056,9 +1050,8 @@ namespace Ioex {
         field_name += complex_suffix[complex_comp];
       }
 
-      char field_suffix_separator = get_field_separator();
       for (int i = 0; i < comp_count; i++) {
-        std::string var_name = var_type->label_name(field_name, i + 1, field_suffix_separator);
+        std::string var_name = get_component_name(field, Ioss::Field::InOut::OUTPUT, i + 1);
 
 #if GLOBALS_ARE_TRANSIENT
         if (type == EX_GLOBAL) {
@@ -1098,8 +1091,6 @@ namespace Ioex {
   void BaseDatabaseIO::get_reduction_field(ex_entity_type type, const Ioss::Field &field,
                                            const Ioss::GroupingEntity *ge, void *variables) const
   {
-    const Ioss::VariableType *var_type = field.raw_storage();
-
     auto id = ge->get_optional_property("id", 0);
 
     Ioss::Field::BasicType ioss_type = field.get_type();
@@ -1112,13 +1103,11 @@ namespace Ioex {
     // get number of components, cycle through each component
     // and add suffix to base 'field_name'.  Look up index
     // of this name in 'm_variables[type]' map
-    char field_suffix_separator = get_field_separator();
 
-    int comp_count = var_type->component_count();
+    int comp_count = field.get_component_count(Ioss::Field::InOut::INPUT);
     for (int i = 0; i < comp_count; i++) {
-      int                var_index  = 0;
-      const std::string &field_name = field.get_name();
-      std::string        var_name = var_type->label_name(field_name, i + 1, field_suffix_separator);
+      int         var_index = 0;
+      std::string var_name  = get_component_name(field, Ioss::Field::InOut::INPUT, i + 1);
 
 #if GLOBALS_ARE_TRANSIENT
       if (type == EX_GLOBAL) {
@@ -1159,7 +1148,7 @@ namespace Ioex {
       auto &id_values = m_reductionValues[type];
       for (const auto &values : id_values) {
         int64_t id    = values.first;
-        auto &  vals  = values.second;
+        auto   &vals  = values.second;
         size_t  count = vals.size();
         if (count > 0) {
           int ierr = ex_put_reduction_vars(get_file_pointer(), step, type, id, count, vals.data());
@@ -1180,7 +1169,7 @@ namespace Ioex {
       auto &id_values = m_reductionValues[type];
       for (const auto &values : id_values) {
         int64_t id    = values.first;
-        auto &  vals  = values.second;
+        auto   &vals  = values.second;
         size_t  count = vals.size();
         if (count > 0) {
           int ierr = ex_get_reduction_vars(get_file_pointer(), step, type, id, count,
@@ -1387,42 +1376,40 @@ namespace Ioex {
 
       // Create a property on `entity` for each `attribute`
       for (const auto &att : attr) {
-        std::string storage = fmt::format("Real[{}]", att.value_count);
+        if (att.value_count == 0) {
+          // Just an attribute name.  Give it an empty value...
+          entity->property_add(Ioss::Property(att.name, "", Ioss::Property::ATTRIBUTE));
+          continue;
+        }
+        assert(att.values != nullptr);
+
         switch (att.type) {
-        case EX_INTEGER:
+        case EX_INTEGER: {
+          const auto *idata = static_cast<int *>(att.values);
           if (att.value_count == 1) {
-            entity->property_add(
-                Ioss::Property(att.name, *(int *)att.values, Ioss::Property::ATTRIBUTE));
+            entity->property_add(Ioss::Property(att.name, *idata, Ioss::Property::ATTRIBUTE));
           }
           else {
-            const int *      idata = static_cast<int *>(att.values);
             std::vector<int> tmp(att.value_count);
             std::copy(idata, idata + att.value_count, tmp.begin());
             entity->property_add(Ioss::Property(att.name, tmp, Ioss::Property::ATTRIBUTE));
           }
-          break;
-        case EX_DOUBLE:
+        } break;
+        case EX_DOUBLE: {
+          const auto *ddata = static_cast<double *>(att.values);
           if (att.value_count == 1) {
-            entity->property_add(
-                Ioss::Property(att.name, *(double *)att.values, Ioss::Property::ATTRIBUTE));
+            entity->property_add(Ioss::Property(att.name, *ddata, Ioss::Property::ATTRIBUTE));
           }
           else {
-            const double *      idata = static_cast<double *>(att.values);
             std::vector<double> tmp(att.value_count);
-            std::copy(idata, idata + att.value_count, tmp.begin());
+            std::copy(ddata, ddata + att.value_count, tmp.begin());
             entity->property_add(Ioss::Property(att.name, tmp, Ioss::Property::ATTRIBUTE));
           }
-          break;
-        case EX_CHAR:
-          if (att.value_count > 0) {
-            entity->property_add(
-                Ioss::Property(att.name, (char *)att.values, Ioss::Property::ATTRIBUTE));
-          }
-          else {
-            // Just an attribute name.  Give it an empty value...
-            entity->property_add(Ioss::Property(att.name, "", Ioss::Property::ATTRIBUTE));
-          }
-          break;
+        } break;
+        case EX_CHAR: {
+          const auto *cdata = static_cast<char *>(att.values);
+          entity->property_add(Ioss::Property(att.name, cdata, Ioss::Property::ATTRIBUTE));
+        } break;
         }
       }
     }
@@ -1440,7 +1427,7 @@ namespace Ioex {
   int64_t BaseDatabaseIO::internal_add_results_fields(ex_entity_type        type,
                                                       Ioss::GroupingEntity *entity,
                                                       int64_t position, int64_t block_count,
-                                                      Ioss::IntVector &      truth_table,
+                                                      Ioss::IntVector       &truth_table,
                                                       Ioex::VariableNameMap &variables)
   {
     int nvar = 0;
@@ -1517,8 +1504,8 @@ namespace Ioex {
 
         std::vector<Ioss::Field> fields;
         int64_t                  count = entity->entity_count();
-        Ioss::Utils::get_fields(count, names, nvar, Ioss::Field::TRANSIENT, get_field_recognition(),
-                                get_field_separator(), local_truth, fields);
+        Ioss::Utils::get_fields(count, names, nvar, Ioss::Field::TRANSIENT, this, local_truth,
+                                fields);
 
         for (const auto &field : fields) {
           entity->field_add(field);
@@ -1579,8 +1566,8 @@ namespace Ioex {
 
         std::vector<Ioss::Field> fields;
         int64_t                  count = 1;
-        Ioss::Utils::get_fields(count, names, nvar, Ioss::Field::REDUCTION, get_field_recognition(),
-                                get_field_separator(), local_truth, fields);
+        Ioss::Utils::get_fields(count, names, nvar, Ioss::Field::REDUCTION, this, local_truth,
+                                fields);
 
         for (const auto &field : fields) {
           entity->field_add(field);
@@ -1786,10 +1773,8 @@ namespace Ioex {
         new_index  = 0;
       }
 
-      Ioss::Field               field    = ge->get_field(name);
-      const Ioss::VariableType *var_type = field.transformed_storage();
-
-      int re_im = 1;
+      Ioss::Field field = ge->get_field(name);
+      int         re_im = 1;
       if (field.get_type() == Ioss::Field::COMPLEX) {
         re_im = 2;
       }
@@ -1799,9 +1784,8 @@ namespace Ioex {
           field_name += complex_suffix[complex_comp];
         }
 
-        char field_suffix_separator = get_field_separator();
-        for (int i = 1; i <= var_type->component_count(); i++) {
-          std::string var_string = var_type->label_name(field_name, i, field_suffix_separator);
+        for (int i = 1; i <= field.get_component_count(Ioss::Field::InOut::OUTPUT); i++) {
+          std::string var_string = get_component_name(field, Ioss::Field::InOut::OUTPUT, i);
 
           if (variables.find(var_string) == variables.end()) {
             variables.insert(VNMValuePair(var_string, ++new_index));
@@ -1833,8 +1817,6 @@ namespace Ioex {
     // next block, ...
     size_t offset = 0;
 
-    char field_suffix_separator = get_field_separator();
-
     const Ioss::SideSetContainer &sidesets = get_region()->get_sidesets();
     for (const auto &sideset : sidesets) {
 
@@ -1846,14 +1828,12 @@ namespace Ioex {
         }
 
         // Get names of all transient and reduction fields...
-        Ioss::NameList results_fields;
-        block->field_describe(Ioss::Field::TRANSIENT, &results_fields);
+        Ioss::NameList results_fields = block->field_describe(Ioss::Field::TRANSIENT);
         block->field_describe(Ioss::Field::REDUCTION, &results_fields);
 
         for (const auto &fn : results_fields) {
-          Ioss::Field               field     = block->get_field(fn);
-          const Ioss::VariableType *var_type  = field.transformed_storage();
-          Ioss::Field::BasicType    ioss_type = field.get_type();
+          Ioss::Field            field     = block->get_field(fn);
+          Ioss::Field::BasicType ioss_type = field.get_type();
 
           int re_im = 1;
           if (ioss_type == Ioss::Field::COMPLEX) {
@@ -1865,8 +1845,8 @@ namespace Ioex {
               field_name += complex_suffix[complex_comp];
             }
 
-            for (int i = 1; i <= var_type->component_count(); i++) {
-              std::string var_string = var_type->label_name(field_name, i, field_suffix_separator);
+            for (int i = 1; i <= field.get_component_count(Ioss::Field::InOut::OUTPUT); i++) {
+              std::string var_string = get_component_name(field, Ioss::Field::InOut::OUTPUT, i);
               // Find position of 'var_string' in 'm_variables[]'
               auto VN = m_variables[EX_SIDE_SET].find(var_string);
               if (VN != m_variables[EX_SIDE_SET].end()) {
@@ -2082,7 +2062,7 @@ namespace Ioex {
       size_t my_element_count = block->entity_count();
 
       // Get the attribute names. May not exist or may be blank...
-      char ** names = Ioss::Utils::get_name_array(attribute_count, maximumNameLength);
+      char  **names = Ioss::Utils::get_name_array(attribute_count, maximumNameLength);
       int64_t id    = block->get_property("id").get_int();
 
       // Some older applications do not want to used named
@@ -2090,14 +2070,10 @@ namespace Ioex {
       // attribute named "attribute_1", "attribute_2", ..., "attribute_#"
       // This is controlled by the database property
       // "IGNORE_ATTRIBUTE_NAMES"
-      char field_suffix_separator = get_field_separator();
-      bool attributes_named       = true; // Possibly reset below; note that even if ignoring
+      bool attributes_named = true; // Possibly reset below; note that even if ignoring
       // attribute names, they are still 'named'
 
       if (properties.exists("IGNORE_ATTRIBUTE_NAMES")) {
-        field_suffix_separator = ' '; // Do not combine into a
-        // higher-order storage type.
-
         for (int i = 0; i < attribute_count; i++) {
           std::string tmp = fmt::format("attribute_{}", i + 1);
           Ioss::Utils::copy_string(names[i], tmp, maximumNameLength + 1);
@@ -2143,8 +2119,7 @@ namespace Ioex {
       if (attributes_named) {
         std::vector<Ioss::Field> attributes;
         Ioss::Utils::get_fields(my_element_count, names, attribute_count, Ioss::Field::ATTRIBUTE,
-                                get_field_recognition(), field_suffix_separator, nullptr,
-                                attributes);
+                                this, nullptr, attributes);
         int offset = 1;
         for (const auto &field : attributes) {
           if (block->field_exists(field.get_name())) {
@@ -2158,26 +2133,25 @@ namespace Ioex {
           block->field_add(field);
           const Ioss::Field &tmp_field = block->get_fieldref(field.get_name());
           tmp_field.set_index(offset);
-          offset += field.raw_storage()->component_count();
+          offset += field.get_component_count(Ioss::Field::InOut::INPUT);
         }
       }
       else {
         // Attributes are not named....
         // Try to assign some meaningful names based on conventions...
-        std::string att_name           = "attribute"; // Default
-        int         unknown_attributes = 0;
+        int unknown_attributes = 0;
 
         if (type_match(type, "shell") || type_match(type, "trishell")) {
           if (attribute_count == block->get_property("topology_node_count").get_int()) {
 
-            att_name = "nodal_thickness";
+            std::string att_name = "nodal_thickness";
 
             std::string storage = fmt::format("Real[{}]", attribute_count);
             block->field_add(Ioss::Field(att_name, Ioss::Field::REAL, storage,
                                          Ioss::Field::ATTRIBUTE, my_element_count, 1));
           }
           else {
-            att_name = "thickness";
+            std::string att_name = "thickness";
             block->field_add(Ioss::Field(att_name, Ioss::Field::REAL, IOSS_SCALAR(),
                                          Ioss::Field::ATTRIBUTE, my_element_count, 1));
             unknown_attributes = attribute_count - 1;
@@ -2217,8 +2191,8 @@ namespace Ioex {
         }
 
         else if (type_match(type, "circle") || type_match(type, "sphere")) {
-          att_name      = "radius";
-          size_t offset = 1;
+          std::string att_name = "radius";
+          size_t      offset   = 1;
           block->field_add(Ioss::Field(att_name, Ioss::Field::REAL, IOSS_SCALAR(),
                                        Ioss::Field::ATTRIBUTE, my_element_count, offset++));
           if (attribute_count > 1) {
@@ -2237,8 +2211,8 @@ namespace Ioex {
           // Technically, truss, bar, rod should all only have 1 attribute; however,
           // there are some mesh generation codes that treat all of these types the
           // same and put "beam-type" attributes on bars...
-          int index = 1;
-          att_name  = "area";
+          int         index    = 1;
+          std::string att_name = "area";
           block->field_add(Ioss::Field(att_name, Ioss::Field::REAL, IOSS_SCALAR(),
                                        Ioss::Field::ATTRIBUTE, my_element_count, index++));
 
@@ -2274,7 +2248,7 @@ namespace Ioex {
         }
 
         if (unknown_attributes > 0) {
-          att_name = "extra_attribute_";
+          std::string att_name = "extra_attribute_";
           att_name += std::to_string(unknown_attributes);
           std::string storage = fmt::format("Real[{}]", unknown_attributes);
           size_t      index   = attribute_count - unknown_attributes + 1;
@@ -2533,27 +2507,16 @@ namespace Ioex {
   void BaseDatabaseIO::output_other_meta_data()
   {
     // Write attribute names (if any)...
-    char field_suffix_separator = get_field_separator();
-    write_attribute_names(get_file_pointer(), EX_NODE_SET, get_region()->get_nodesets(),
-                          field_suffix_separator);
-    write_attribute_names(get_file_pointer(), EX_EDGE_SET, get_region()->get_edgesets(),
-                          field_suffix_separator);
-    write_attribute_names(get_file_pointer(), EX_FACE_SET, get_region()->get_facesets(),
-                          field_suffix_separator);
-    write_attribute_names(get_file_pointer(), EX_ELEM_SET, get_region()->get_elementsets(),
-                          field_suffix_separator);
-    write_attribute_names(get_file_pointer(), EX_NODE_BLOCK, get_region()->get_node_blocks(),
-                          field_suffix_separator);
-    write_attribute_names(get_file_pointer(), EX_EDGE_BLOCK, get_region()->get_edge_blocks(),
-                          field_suffix_separator);
-    write_attribute_names(get_file_pointer(), EX_FACE_BLOCK, get_region()->get_face_blocks(),
-                          field_suffix_separator);
-    write_attribute_names(get_file_pointer(), EX_ELEM_BLOCK, get_region()->get_element_blocks(),
-                          field_suffix_separator);
-    write_attribute_names(get_file_pointer(), EX_ASSEMBLY, get_region()->get_assemblies(),
-                          field_suffix_separator);
-    write_attribute_names(get_file_pointer(), EX_BLOB, get_region()->get_blobs(),
-                          field_suffix_separator);
+    write_attribute_names(get_file_pointer(), EX_NODE_SET, get_region()->get_nodesets());
+    write_attribute_names(get_file_pointer(), EX_EDGE_SET, get_region()->get_edgesets());
+    write_attribute_names(get_file_pointer(), EX_FACE_SET, get_region()->get_facesets());
+    write_attribute_names(get_file_pointer(), EX_ELEM_SET, get_region()->get_elementsets());
+    write_attribute_names(get_file_pointer(), EX_NODE_BLOCK, get_region()->get_node_blocks());
+    write_attribute_names(get_file_pointer(), EX_EDGE_BLOCK, get_region()->get_edge_blocks());
+    write_attribute_names(get_file_pointer(), EX_FACE_BLOCK, get_region()->get_face_blocks());
+    write_attribute_names(get_file_pointer(), EX_ELEM_BLOCK, get_region()->get_element_blocks());
+    write_attribute_names(get_file_pointer(), EX_ASSEMBLY, get_region()->get_assemblies());
+    write_attribute_names(get_file_pointer(), EX_BLOB, get_region()->get_blobs());
 
     // Write "reduction" attributes...
     std::vector<Ioss::Region *> regions;
@@ -2590,8 +2553,7 @@ namespace Ioex {
 
 namespace {
   template <typename T>
-  void write_attribute_names(int exoid, ex_entity_type type, const std::vector<T *> &entities,
-                             const char suffix_separator)
+  void write_attribute_names(int exoid, ex_entity_type type, const std::vector<T *> &entities)
   {
     // For the entity, determine the attribute fields and the correct
     // order. Write the names of these fields.  However, be aware that
@@ -2608,8 +2570,7 @@ namespace {
         std::vector<std::string> names_str(attribute_count);
 
         // Get the attribute fields...
-        Ioss::NameList results_fields;
-        ge->field_describe(Ioss::Field::ATTRIBUTE, &results_fields);
+        Ioss::NameList results_fields = ge->field_describe(Ioss::Field::ATTRIBUTE);
 
         for (const auto &field_name : results_fields) {
           const Ioss::Field &field = ge->get_fieldref(field_name);
@@ -2620,12 +2581,11 @@ namespace {
             continue;
           }
 
-          const Ioss::VariableType *vtype        = field.raw_storage();
-          int                       comp_count   = vtype->component_count();
-          int                       field_offset = field.get_index();
+          int comp_count   = field.get_component_count(Ioss::Field::InOut::OUTPUT);
+          int field_offset = field.get_index();
           for (int i = 0; i < comp_count; i++) {
             names_str[field_offset - 1 + i] =
-                vtype->label_name(field_name, i + 1, suffix_separator);
+                ge->get_database()->get_component_name(field, Ioss::Field::InOut::OUTPUT, i + 1);
             names[field_offset - 1 + i] =
                 const_cast<char *>(names_str[field_offset - 1 + i].c_str());
           }
@@ -2651,8 +2611,7 @@ namespace {
     std::vector<int> attributes(attribute_count + 1);
 
     // Get the attribute fields...
-    Ioss::NameList results_fields;
-    block->field_describe(Ioss::Field::ATTRIBUTE, &results_fields);
+    Ioss::NameList results_fields = block->field_describe(Ioss::Field::ATTRIBUTE);
 
     bool all_attributes_indexed  = true;
     bool some_attributes_indexed = false;
@@ -2676,8 +2635,7 @@ namespace {
         some_attributes_indexed = true;
       }
 
-      const Ioss::VariableType *type       = field.raw_storage();
-      int                       comp_count = type->component_count();
+      int comp_count = field.get_component_count(Ioss::Field::InOut::OUTPUT);
       component_sum += comp_count;
 
       if (field_offset == 0) {
@@ -2749,8 +2707,7 @@ namespace {
           continue;
         }
 
-        const Ioss::VariableType *type       = field.raw_storage();
-        int                       comp_count = type->component_count();
+        int comp_count = field.get_component_count(Ioss::Field::InOut::OUTPUT);
 
         assert(field.get_index() == 0);
         field.set_index(offset);
@@ -2787,8 +2744,7 @@ namespace {
 
         if (field.get_index() == 0) {
           field.set_index(first_undefined);
-          const Ioss::VariableType *type       = field.raw_storage();
-          int                       comp_count = type->component_count();
+          int comp_count = field.get_component_count(Ioss::Field::InOut::OUTPUT);
           first_undefined += comp_count;
         }
       }
@@ -2806,8 +2762,7 @@ namespace {
         continue;
       }
 
-      const Ioss::VariableType *type       = field.raw_storage();
-      int                       comp_count = type->component_count();
+      int comp_count = field.get_component_count(Ioss::Field::InOut::OUTPUT);
 
       assert(field.get_index() == 0);
       field.set_index(offset);
@@ -2884,7 +2839,7 @@ namespace {
                          "more details.\n");
     }
     int idiff = any_diff ? 1 : 0;
-    MPI_Bcast(&idiff, 1, MPI_INT, 0, util.communicator());
+    util.broadcast(idiff);
     any_diff = idiff == 1;
 
     if (any_diff) {

@@ -132,12 +132,15 @@ namespace MueLu {
     if (name == "print initial parameters") { ss << "<Parameter name=\"print initial parameters\" type=\"bool\" value=" << value << "/>"; return ss.str(); }      
     if (name == "print unused parameters") { ss << "<Parameter name=\"print unused parameters\" type=\"bool\" value=" << value << "/>"; return ss.str(); }      
     if (name == "sa: damping factor") { ss << "<Parameter name=\"sa: damping factor\" type=\"double\" value=" << value << "/>"; return ss.str(); }      
+    if (name == "sa: use filtered matrix") { ss << "<Parameter name=\"sa: use filtered matrix\" type=\"bool\" value=" << value << "/>"; return ss.str(); }      
     if (name == "sa: eigenvalue estimate num iterations") { ss << "<Parameter name=\"sa: eigenvalue estimate num iterations\" type=\"int\" value=" << value << "/>"; return ss.str(); }      
     if (name == "sa: use rowsumabs diagonal scaling") { ss << "<Parameter name=\"sa: use rowsumabs diagonal scaling\" type=\"bool\" value=" << value << "/>"; return ss.str(); }      
     if (name == "sa: enforce constraints") { ss << "<Parameter name=\"sa: enforce constraints\" type=\"bool\" value=" << value << "/>"; return ss.str(); }      
     if (name == "sa: max eigenvalue") { ss << "<Parameter name=\"sa: max eigenvalue\" type=\"double\" value=" << value << "/>"; return ss.str(); }      
     if (name == "sa: rowsumabs diagonal replacement tolerance") { ss << "<Parameter name=\"sa: rowsumabs diagonal replacement tolerance\" type=\"double\" value=" << value << "/>"; return ss.str(); }      
+    if (name == "sa: rowsumabs use automatic diagonal tolerance") { ss << "<Parameter name=\"sa: rowsumabs use automatic diagonal tolerance\" type=\"bool\" value=" << value << "/>"; return ss.str(); }      
     if (name == "sa: rowsumabs diagonal replacement value") { ss << "<Parameter name=\"sa: rowsumabs diagonal replacement value\" type=\"double\" value=" << value << "/>"; return ss.str(); }      
+    if (name == "sa: rowsumabs replace single entry row with zero") { ss << "<Parameter name=\"sa: rowsumabs replace single entry row with zero\" type=\"bool\" value=" << value << "/>"; return ss.str(); }      
     if (name == "pcoarsen: element") { ss << "<Parameter name=\"pcoarsen: element\" type=\"string\" value=" << value << "/>"; return ss.str(); }      
     if (name == "pcoarsen: schedule") { ss << "<Parameter name=\"pcoarsen: schedule\" type=\"string\" value=" << value << "/>"; return ss.str(); }      
     if (name == "pcoarsen: hi basis") { ss << "<Parameter name=\"pcoarsen: hi basis\" type=\"string\" value=" << value << "/>"; return ss.str(); }      
@@ -224,19 +227,22 @@ namespace MueLu {
   "<Parameter name=\"aggregation: brick z Dirichlet\" type=\"bool\" value=\"false\"/>"
   "<Parameter name=\"aggregation: max selected neighbors\" type=\"int\" value=\"0\"/>"
   "<Parameter name=\"aggregation: Dirichlet threshold\" type=\"double\" value=\"0.0\"/>"
+  "<Parameter name=\"aggregation: greedy Dirichlet\" type=\"bool\" value=\"false\"/>"
   "<Parameter name=\"aggregation: deterministic\" type=\"bool\" value=\"false\"/>"
   "<Parameter name=\"aggregation: coloring algorithm\" type=\"string\" value=\"serial\"/>"
   "<Parameter name=\"aggregation: coloring: use color graph\" type=\"bool\" value=\"false\"/>"
+  "<Parameter name=\"aggregation: coloring: localize color graph\" type=\"bool\" value=\"true\"/>"
   "<Parameter name=\"aggregation: enable phase 1\" type=\"bool\" value=\"true\"/>"
   "<Parameter name=\"aggregation: enable phase 2a\" type=\"bool\" value=\"true\"/>"
   "<Parameter name=\"aggregation: enable phase 2b\" type=\"bool\" value=\"true\"/>"
   "<Parameter name=\"aggregation: enable phase 3\" type=\"bool\" value=\"true\"/>"
-  "<Parameter name=\"aggregation: phase2a include root\" type=\"bool\" value=\"true\"/>"
+  "<Parameter name=\"aggregation: match ML phase2a\" type=\"bool\" value=\"false\"/>"
   "<Parameter name=\"aggregation: phase2a agg factor\" type=\"double\" value=\"0.5\"/>"
   "<Parameter name=\"aggregation: error on nodes with no on-rank neighbors\" type=\"bool\" value=\"false\"/>"
   "<Parameter name=\"aggregation: phase3 avoid singletons\" type=\"bool\" value=\"false\"/>"
   "<Parameter name=\"aggregation: allow empty prolongator columns\" type=\"bool\" value=\"false\"/>"
   "<Parameter name=\"aggregation: preserve Dirichlet points\" type=\"bool\" value=\"false\"/>"
+  "<Parameter name=\"aggregation: dropping may create Dirichlet\" type=\"bool\" value=\"true\"/>"
   "<Parameter name=\"aggregation: allow user-specified singletons\" type=\"bool\" value=\"false\"/>"
   "<Parameter name=\"aggregation: use interface aggregation\" type=\"bool\" value=\"false\"/>"
   "<Parameter name=\"aggregation: export visualization data\" type=\"bool\" value=\"false\"/>"
@@ -268,6 +274,8 @@ namespace MueLu {
   "<Parameter name=\"print initial parameters\" type=\"bool\" value=\"true\"/>"
   "<Parameter name=\"print unused parameters\" type=\"bool\" value=\"true\"/>"
   "<Parameter name=\"transpose: use implicit\" type=\"bool\" value=\"false\"/>"
+  "<Parameter name=\"nullspace: calculate rotations\" type=\"bool\" value=\"false\"/>"
+  "<Parameter name=\"nullspace: suppress dimension check\" type=\"bool\" value=\"false\"/>"
   "<Parameter name=\"restriction: scale nullspace\" type=\"bool\" value=\"false\"/>"
   "<Parameter name=\"use kokkos refactor\" type=\"bool\" value=\"false\"/>"
   "<Parameter name=\"synchronize factory timers\" type=\"bool\" value=\"false\"/>"
@@ -276,6 +284,7 @@ namespace MueLu {
   "<Parameter name=\"toggle: mode\" type=\"string\" value=\"semicoarsen\"/>"
   "<Parameter name=\"semicoarsen: coarsen rate\" type=\"int\" value=\"3\"/>"
   "<Parameter name=\"semicoarsen: piecewise constant\" type=\"bool\" value=\"false\"/>"
+  "<Parameter name=\"semicoarsen: calculate nonsym restriction\" type=\"bool\" value=\"false\"/>"
   "<Parameter name=\"semicoarsen: number of levels\" type=\"int\" value=\"3\"/>"
   "<Parameter name=\"linedetection: orientation\" type=\"string\" value=\"vertical\"/>"
   "<Parameter name=\"linedetection: num layers\" type=\"int\" value=\"-1\"/>"
@@ -287,7 +296,9 @@ namespace MueLu {
   "<Parameter name=\"sa: enforce constraints\" type=\"bool\" value=\"false\"/>"
   "<Parameter name=\"sa: max eigenvalue\" type=\"double\" value=\"-1.0\"/>"
   "<Parameter name=\"sa: rowsumabs diagonal replacement tolerance\" type=\"double\" value=\"-1.0\"/>"
+  "<Parameter name=\"sa: rowsumabs use automatic diagonal tolerance\" type=\"bool\" value=\"false\"/>"
   "<Parameter name=\"sa: rowsumabs diagonal replacement value\" type=\"double\" value=\"0.0\"/>"
+  "<Parameter name=\"sa: rowsumabs replace single entry row with zero\" type=\"bool\" value=\"true\"/>"
   "<Parameter name=\"interp: build coarse coordinates\" type=\"bool\" value=\"true\"/>"
   "<ParameterList name=\"transfer: params\"/>"
   "<Parameter name=\"pcoarsen: element\" type=\"string\" value=\"\"/>"
@@ -347,7 +358,10 @@ namespace MueLu {
   "<Parameter name=\"reuse: type\" type=\"string\" value=\"none\"/>"
   "<Parameter name=\"use external multigrid package\" type=\"string\" value=\"none\"/>"
   "<ParameterList name=\"amgx:params\"/>"
-  "<Parameter name=\"debug: graph level\" type=\"int\" value=\"-1\"/>"
+  "<Parameter name=\"debug: graph level\" type=\"int\" value=\"-2\"/>"
+  "<Parameter name=\"maxwell1: mode\" type=\"string\" value=\"standard\"/>"
+  "<ParameterList name=\"maxwell1: 11list\"/>"
+  "<ParameterList name=\"maxwell1: 22list\"/>"
   "<Parameter name=\"refmaxwell: mode\" type=\"string\" value=\"additive\"/>"
   "<Parameter name=\"refmaxwell: disable addon\" type=\"bool\" value=\"true\"/>"
   "<ParameterList name=\"refmaxwell: 11list\"/>"
@@ -652,11 +666,15 @@ namespace MueLu {
       
          ("aggregation: Dirichlet threshold","aggregation: Dirichlet threshold")
       
+         ("aggregation: greedy Dirichlet","aggregation: greedy Dirichlet")
+      
          ("aggregation: deterministic","aggregation: deterministic")
       
          ("aggregation: coloring algorithm","aggregation: coloring algorithm")
       
          ("aggregation: coloring: use color graph","aggregation: coloring: use color graph")
+      
+         ("aggregation: coloring: localize color graph","aggregation: coloring: localize color graph")
       
          ("aggregation: enable phase 1","aggregation: enable phase 1")
       
@@ -666,7 +684,7 @@ namespace MueLu {
       
          ("aggregation: enable phase 3","aggregation: enable phase 3")
       
-         ("aggregation: phase2a include root","aggregation: phase2a include root")
+         ("aggregation: match ML phase2a","aggregation: match ML phase2a")
       
          ("aggregation: phase2a agg factor","aggregation: phase2a agg factor")
       
@@ -677,6 +695,8 @@ namespace MueLu {
          ("aggregation: allow empty prolongator columns","aggregation: allow empty prolongator columns")
       
          ("aggregation: preserve Dirichlet points","aggregation: preserve Dirichlet points")
+      
+         ("aggregation: dropping may create Dirichlet","aggregation: dropping may create Dirichlet")
       
          ("aggregation: allow user-specified singletons","aggregation: allow user-specified singletons")
       
@@ -740,6 +760,10 @@ namespace MueLu {
       
          ("transpose: use implicit","transpose: use implicit")
       
+         ("nullspace: calculate rotations","nullspace: calculate rotations")
+      
+         ("nullspace: suppress dimension check","nullspace: suppress dimension check")
+      
          ("restriction: scale nullspace","restriction: scale nullspace")
       
          ("use kokkos refactor","use kokkos refactor")
@@ -756,6 +780,8 @@ namespace MueLu {
       
          ("semicoarsen: piecewise constant","semicoarsen: piecewise constant")
       
+         ("semicoarsen: calculate nonsym restriction","semicoarsen: calculate nonsym restriction")
+      
          ("semicoarsen: number of levels","semicoarsen: number of levels")
       
          ("linedetection: orientation","linedetection: orientation")
@@ -764,7 +790,7 @@ namespace MueLu {
       
          ("aggregation: damping factor","sa: damping factor")
       
-         ("sa: use filtered matrix","sa: use filtered matrix")
+         ("aggregation aux: enable","sa: use filtered matrix")
       
          ("sa: calculate eigenvalue estimate","sa: calculate eigenvalue estimate")
       
@@ -778,7 +804,11 @@ namespace MueLu {
       
          ("not supported by ML","sa: rowsumabs diagonal replacement tolerance")
       
+         ("not supported by ML","sa: rowsumabs use automatic diagonal tolerance")
+      
          ("not supported by ML","sa: rowsumabs diagonal replacement value")
+      
+         ("not supported by ML","sa: rowsumabs replace single entry row with zero")
       
          ("interp: build coarse coordinates","interp: build coarse coordinates")
       
@@ -899,6 +929,12 @@ namespace MueLu {
          ("amgx:params","amgx:params")
       
          ("debug: graph level","debug: graph level")
+      
+         ("maxwell1: mode","maxwell1: mode")
+      
+         ("maxwell1: 11list","maxwell1: 11list")
+      
+         ("maxwell1: 22list","maxwell1: 22list")
       
          ("refmaxwell: mode","refmaxwell: mode")
       
