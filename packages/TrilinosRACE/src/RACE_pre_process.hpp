@@ -44,7 +44,7 @@ namespace RACE {
 
     //NUMA initializers
     template <class Scalar,class LocalOrdinal>
-    void TrilinosRACE_powerInitRowPtrFunc(int start, int end, int pow, int numa_domain, void* arg)
+    void TrilinosRACE_powerInitRowPtrFunc(int start, int end, int pow, int subPow, int numa_domain, void* arg)
     {
         TrilinosRACE_DECODE_ARG_NUMA(arg);
         if(col != NULL && val != NULL)
@@ -52,7 +52,7 @@ namespace RACE {
             ERROR_PRINT("Something went wrong, I shouldnn' t be here");
         }
 
-        if(pow == 1)
+        if((pow == 1) && (subPow==1))
         {
             for(int row=start; row<end; ++row)
             {
@@ -64,10 +64,10 @@ namespace RACE {
     }
 
     template <class Scalar,class LocalOrdinal>
-    void TrilinosRACE_powerInitMtxVecFunc(int start, int end, int pow, int numa_domain, void* arg)
+    void TrilinosRACE_powerInitMtxVecFunc(int start, int end, int pow, int subPow, int numa_domain, void* arg)
     {
         TrilinosRACE_DECODE_ARG_NUMA(arg);
-        if(pow==1)
+        if((pow==1) && (subPow==1))
         {
             for(int row=start; row<end; ++row)
             {
@@ -122,6 +122,7 @@ namespace RACE {
             int *rowPtr_int; //TODO: template this, need to adapt RACE
             int *col_int; //TODO: template this, need to adapt RACE
             const Scalar *val_ptr;
+            //Scalar* diag;
 
             /*RACE params*/
             double cacheSize;
@@ -136,6 +137,21 @@ namespace RACE {
 
             /*Interface to RACE library*/
             RACE::Interface *ce;
+
+            //expected preconditioner. This is necessary so we can set power
+            //correctly in pre-processing
+            //Currently available: NONE (default), JACOBI, GAUSS-SEIDEL,
+            //JACOBI-GAUSS-SEIDEL
+            std::string precon_type;
+            //set true if starting vector for preconditioner is zero
+            bool precon_start_w_zero;
+            //currently only one iter of preconditioning is allowed
+
+            //determines how much power computations are required for
+            //preconditioner. For example for highestPower=2 without preconditioners
+            //we need 2*highestPower powers for computing preconditioners like GAUSS-SEIDEL.
+            //Therefore, this factor 2 is preonPowerFactor.
+            int preconPowerFactor;
 
             public:
             int* getPerm()
@@ -175,7 +191,7 @@ namespace RACE {
             }
 
             //constructor
-            preProcess(Teuchos::RCP<CrsMatrixType> origA_, Teuchos::ParameterList& paramList): perm(NULL), invPerm(NULL), origA(origA_), permA(Teuchos::null), ce(NULL)
+            preProcess(Teuchos::RCP<CrsMatrixType> origA_, Teuchos::ParameterList& paramList): perm(NULL), invPerm(NULL), /*diag(NULL),*/ origA(origA_), permA(Teuchos::null), ce(NULL)
             {
                 if(origA == Teuchos::null)
                 {
@@ -198,6 +214,39 @@ namespace RACE {
                 //default highest power is 1, so no temporal blocking
                 highestPower = 1;
                 highestPower = paramList.get("Highest power", highestPower);
+
+                precon_type = "NONE";
+                precon_type = paramList.get("Preconditioner", precon_type);
+                std::transform(precon_type.begin(), precon_type.end(), precon_type.begin(), ::toupper);
+
+                precon_start_w_zero = true;
+                //TODO: when support in kernels are available
+              //  precon_start_w_zero = paramList.get("Preconditioner start with zero vector", precon_start_w_zero);
+
+                preconPowerFactor = 1;
+                if(precon_type == "GAUSS-SEIDEL" || precon_type == "JACOBI-GAUSS-SEIDEL")
+                {
+                    preconPowerFactor = 2;
+                    //no recursion if power>1, since the order
+                    //of preconditioner application in different power
+                    //changes and not suitable for GMRES like solvers, would
+                    //need F-GMRES
+                    //
+                    //no recursion at all (even for power=1) if pure GAUSS-SEIDEL (RIGHT), even in case of
+                    //power=1, because for some reason there is a problem (not
+                    //figured out yet, why at power=1)
+
+                    if((highestPower > 1) || (precon_type == "GAUSS-SEIDEL"))
+                    {
+                        std::string maxInt = std::to_string(std::numeric_limits<int>::max());
+                        setenv("RACE_CACHE_VIOLATION_CUTOFF", maxInt.c_str(), 1); //last argument ensure overwrites
+                    }
+
+                }
+                else if((precon_type == "JACOBI") && (precon_start_w_zero == false))
+                {
+                    preconPowerFactor = 2;
+                }
 
                 Teuchos::ArrayRCP<const size_t> rowPointers;
                 Teuchos::ArrayRCP<const LocalOrdinal> columnIndices;
@@ -264,7 +313,7 @@ namespace RACE {
                 {
                     ce = new RACE::Interface(nrows, nthreads, RACE::POWER, rowPtr_int, col_int);
                     int numSharedCache = 1; //currently try only this, and within one socket. Outside socket go MPI
-                    ce->RACEColor(highestPower, numSharedCache, cacheSize);
+                    ce->RACEColor(highestPower, numSharedCache, cacheSize, 2, "N", preconPowerFactor);
 #ifdef BELOS_TEUCHOS_TIME_MONITOR
                     Teuchos::TimeMonitor updateTimer( *RACEPreTime);
 #endif
@@ -315,6 +364,10 @@ namespace RACE {
                 {
                     delete[] invPerm;
                 }
+                /*if(diag)
+                {
+                    delete[] diag;
+                }*/
             }
 
             //symmetrically permute
@@ -389,6 +442,8 @@ namespace RACE {
 #endif
 
                 bool sortedCol = true;
+
+                //diag = new Scalar[nrows];
                 //TPETRA expects sorted columns else will have to pass through
                 //parameter that it is not sorted
                 if(_perm_ != NULL)
@@ -406,20 +461,34 @@ namespace RACE {
                         int rowLen = newRowPtr[row+1]-newRowPtr[row];
                         std::vector<LocalOrdinal> tmpCol(rowLen);
                         std::vector<Scalar> tmpVal(rowLen);
+                        //bool found_diag = false;
                         for(_perm_Idx=newRowPtr[row],idx=rowPtr_int[_perm_Row], ctr=0; _perm_Idx<newRowPtr[row+1]; ++idx,++_perm_Idx,++ctr)
                         {
                             tmpCol[ctr] = _invPerm_[col_int[idx]];
                             tmpVal[ctr] = val_ptr[idx];
+
+                            //if diagonal store it, require it if we want to
+                            //apply some preconditioners
+                            /*if(tmpCol[ctr] == row)
+                            {
+                                diag[row] = tmpVal[ctr];
+                                found_diag=true;
+                            }*/
+
                             if(!sortedCol)
                             {
                                 newCol[_perm_Idx] = tmpCol[ctr];
                                 newVal[_perm_Idx] = tmpVal[ctr];
                             }
                         }
+                        /*if(!found_diag)
+                        {
+                            diag[row] = 0;
+                            WARNING_PRINT("diagonal missing in %d row",row);
+                        }*/
 
                         if(sortedCol)
                         {
-                            int rowLen = tmpCol.size();
                             std::vector<LocalOrdinal> perm(rowLen);
                             int ctr=0;
                             for(auto it=perm.begin(); it!=perm.end(); ++it)
@@ -451,11 +520,24 @@ namespace RACE {
 #pragma omp parallel for schedule(static)
                     for(int row=0; row<nrows; ++row)
                     {
+                        //bool found_diag = false;
                         for(size_t idx=newRowPtr[row]; idx<newRowPtr[row+1]; ++idx)
                         {
                             newCol[idx] = col_int[idx];
                             newVal[idx] = val_ptr[idx];
+                            //if diagonal store it, require it if we want to
+                            //apply some preconditioners
+                            /*if(newCol[idx] == row)
+                            {
+                                diag[row] = newVal[idx];
+                                found_diag = true;
+                            }*/
                         }
+                        /*if(!found_diag)
+                        {
+                            diag[row] = 0;
+                            WARNING_PRINT("diagonal missing in %d row",row);
+                        }*/
                     }
                 }
 

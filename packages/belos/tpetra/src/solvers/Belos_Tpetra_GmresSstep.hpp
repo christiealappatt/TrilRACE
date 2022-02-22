@@ -327,6 +327,10 @@ private:
     mag_type metric;
 
     bool zeroOut = false; // Kokkos::View:init can take a long time on GPU?
+   /* if(input.useRACE)
+    {
+        zeroOut = true;
+    }*/
     vec_type R (B.getMap (), zeroOut);
     vec_type Y (B.getMap (), zeroOut);
     vec_type MP (B.getMap (), zeroOut);
@@ -340,10 +344,26 @@ private:
     }
     R.update (one, B, -one);
     b0_norm = R.norm2 (); // initial residual norm, not preconditioned
+
+
+#ifdef HAVE_BELOS_RACE
+    using RACE_type = RACE::frontend<typename OP::scalar_type, typename OP::local_ordinal_type, typename OP::global_ordinal_type, typename OP::node_type>;
+    Teuchos::RCP<RACE_type> raceHandle((RACE_type*) input.raceVoidHandle, false);
+#endif
+
     if (input.precoSide == "left") {
         {
             Teuchos::TimeMonitor LocalTimer (*preconTimer);
-            M.apply (R, P);
+#ifdef HAVE_BELOS_RACE
+            if(input.useRACE)
+            {
+                raceHandle->apply_Precon(1, R, P);
+            }
+            else
+#endif
+            {
+                M.apply (R, P);
+            }
         }
       r_norm = P.norm2 (); // initial residual norm, left-preconditioned
     } else {
@@ -395,7 +415,16 @@ private:
       if (input.precoSide == "left") {
           {
               Teuchos::TimeMonitor LocalTimer (*preconTimer);
-              M.apply (R, P);
+#ifdef HAVE_BELOS_RACE
+              if(input.useRACE)
+              {
+                  raceHandle->apply_Precon(1, R, P);
+              }
+              else
+#endif
+              {
+                  M.apply (R, P);
+              }
           }
         r_norm = P.norm2 (); // residual norm
       }
@@ -414,6 +443,7 @@ private:
 
     // Main loop
     int iter = 0;
+
 #ifdef HAVE_BELOS_RACE
     int tunedPow=input.tunedPow;
 #endif
@@ -447,7 +477,7 @@ private:
 
 #ifdef HAVE_BELOS_RACE
         //RACE with precon not implemented now, so go to traditional approach
-        if(!input.useRACE || input.precoSide!="none")
+        if(!input.useRACE) // || input.precoSide!="none")
 #endif
         {
             for (step=0; step < stepSize && iter+step < restart; step++) {
@@ -501,28 +531,28 @@ private:
                 {
                     theta[step] = complex_type(theta[step].real(), 0); //make sure imaginary part is 0, so i-1 access does not happen
                 }
+                //printf("theta = %f + i%f\n", theta[step].real(), theta[step].imag());
                 ++curStepSize;
             }
 
             if(curStepSize > 0)
             {
-                Teuchos::Range1D index(iter, iter+curStepSize);
-                Teuchos::RCP<MV> Q_subview  = Q.subViewNonConst (index);
-                using RACE_type = RACE::frontend<typename OP::scalar_type, typename OP::local_ordinal_type, typename OP::global_ordinal_type, typename OP::node_type>;
-                Teuchos::RCP<RACE_type> raceHandle((RACE_type*) input.raceVoidHandle, false);
+                //printf("iter = %d, curStepSize = %d\n", iter, curStepSize);
+                //Teuchos::Range1D index(iter, iter+curStepSize);
+                //Teuchos::RCP<MV> Q_subview  = Q.subViewNonConst (index);
                 //updateNewtonV is also included
                 {
                     Teuchos::TimeMonitor LocalTimer (*MPK_RACE_Timer);
                     if(tunedPow == -1)
                     {
                         //if first iteration tune the inner stepSize
-                        tunedPow = raceHandle->apply_GmresSstep(curStepSize, *Q_subview, theta, -1);
+                        tunedPow = raceHandle->apply_GmresSstep(curStepSize, iter, Q, theta, -1);
                         output.tunedPow = tunedPow;
                     }
                     else
                     {
                         //use the tunedPow as inner stepSize
-                        raceHandle->apply_GmresSstep(curStepSize, *Q_subview, theta, tunedPow);
+                        raceHandle->apply_GmresSstep(curStepSize, iter, Q, theta, tunedPow);
                     }
                 }
                 output.numIters += curStepSize;
@@ -632,7 +662,16 @@ private:
         MVT::MvTimesMatAddMv (one, *Qj, y_iter, zero, R);
         {
             Teuchos::TimeMonitor LocalTimer (*preconTimer);
-            M.apply (R, MP);
+#ifdef HAVE_BELOS_RACE
+            if(input.useRACE)
+            {
+                raceHandle->apply_Precon(1, R, MP);
+            }
+            else
+#endif
+            {
+                M.apply (R, MP);
+            }
         }
         X.update (one, MP, one);
       }
@@ -673,9 +712,18 @@ private:
           if (input.precoSide == "left") { // left-precond'd residual norm
               {
                   Teuchos::TimeMonitor LocalTimer (*preconTimer);
-                  M.apply (R, P);
+#ifdef HAVE_BELOS_RACE
+                  if(input.useRACE)
+                  {
+                      raceHandle->apply_Precon(1, R, P);
+                  }
+                  else
+#endif
+                  {
+                      M.apply (R, P);
+                  }
               }
-            r_norm = P.norm2 ();
+              r_norm = P.norm2 ();
           }
           else {
             // set the starting vector

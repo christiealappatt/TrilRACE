@@ -25,10 +25,10 @@ template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
 
             public:
             //constructor
-            frontend(Teuchos::RCP<CrsMatrixType> origA_, Teuchos::ParameterList& paramList, std::string precType="NONE", Teuchos::RCP<CrsMatrixType> M=Teuchos::null): pre(origA_, paramList)
+            frontend(Teuchos::RCP<CrsMatrixType> origA_, Teuchos::ParameterList& paramList, Teuchos::RCP<CrsMatrixType> M=Teuchos::null): pre(origA_, paramList)
             {
                 Teuchos::RCP<CrsMatrixType> permA = pre.getPermutedMatrix();
-                exec.init(pre.get_RACE_engine(), permA);
+                exec.init(pre.get_RACE_engine(), permA, paramList);
             }
 
             Teuchos::RCP<CrsMatrixType> getPermutedMatrix()
@@ -80,7 +80,7 @@ template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
             int apply(int power, vec_type &x, Scalar alpha=Teuchos::ScalarTraits<Scalar>::one(), Scalar beta = Teuchos::ScalarTraits<Scalar>::zero(), int tunedPow=1)
             {
                 std::string precType = exec.getPrecType();
-                if(precType=="NONE")
+                if( (precType=="NONE") || (precType=="JACOBI") )
                 {
                     return exec.MPK(power, x, alpha, beta, tunedPow);
                 }
@@ -93,16 +93,26 @@ template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
 
             using complex_type = typename packtype::complex_type;
 
-            int apply_GmresSstep(int power, vec_type &x, std::vector<complex_type> theta, int tunedPow=1)
+            int apply_Precon(int power, vec_type &b, vec_type &x)
             {
-
-                //if stepsize (power) is big need to split to smaller optimal step size
-                //TODO: develop a common infrastructure to benchmark optimal
-                //step size and use it
                 std::string precType = exec.getPrecType();
-                if(precType=="NONE")
+                if( (precType=="NONE" || precType=="JACOBI") || (precType=="GAUSS-SEIDEL" || precType=="JACOBI-GAUSS-SEIDEL") )
                 {
-                    return exec.MPK_GmresSstepKernel(power, x, theta, tunedPow);
+                    return exec.PreconKernel(power, b, x);
+                }
+                else
+                {
+                    ERROR_PRINT("%s preconditioner kernel not implemented yet in RACE", precType.c_str());
+                    return -2;
+                }
+            }
+
+            int apply_GmresSstep(int power, int iter, vec_type &x, std::vector<complex_type> theta, int tunedPow=1)
+            {
+                std::string precType = exec.getPrecType();
+                if( (precType=="NONE" || precType=="JACOBI") || (precType=="GAUSS-SEIDEL" || precType=="JACOBI-GAUSS-SEIDEL") )
+                {
+                    return exec.MPK_GmresSstepKernel(power, iter, x, theta, tunedPow);
                 }
                 else
                 {
@@ -116,7 +126,15 @@ template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
             {
                 //step size and use it
                 std::string precType = exec.getPrecType();
-                return exec.MPK_GmresPolyPreconKernel(power, prod, y, theta, tunedPow);
+                if(precType=="NONE" || precType=="JACOBI")
+                {
+                    return exec.MPK_GmresPolyPreconKernel(power, prod, y, theta, tunedPow);
+                }
+                else
+                {
+                    ERROR_PRINT("GMRES polynomial preconditioner with %s preconditioner not implemented yet in RACE", precType.c_str());
+                    return -2;
+                }
             }
 
 

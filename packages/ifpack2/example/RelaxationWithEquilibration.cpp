@@ -1611,6 +1611,7 @@ struct CmdLineArgs {
   bool useRACEreordering = false;
   std::string RACE_cacheSize = "-1";
   std::string RACE_highestPower = "1";
+  std::string precSide = "RIGHT";
 };
 
 // Read in values of command-line arguments.
@@ -1642,7 +1643,7 @@ getCmdLineArgs (CmdLineArgs& args, int argc, char* argv[])
                   "One or more Ifpack2 preconditioner types, "
                   "separated by commas");
   cmdp.setOption ("preconditionerSubType", &args.preconditionerSubType,
-                  "One Ifpack2 preconditioner sub type (Jacobi, Gauss-Seidel, ...)");
+                  "One Ifpack2 (or RACE) preconditioner sub type (Jacobi, Gauss-Seidel, ...)");
   cmdp.setOption ("solverVerbose", "solverQuiet", &args.solverVerbose,
                   "Whether the Belos solver should print verbose output");
   cmdp.setOption ("equilibrate", "no-equilibrate", &args.equilibrate,
@@ -1682,7 +1683,8 @@ getCmdLineArgs (CmdLineArgs& args, int argc, char* argv[])
                   "Cache size used for RACE reordering");
   cmdp.setOption ("RACE_highestPower", &args.RACE_highestPower,
                   "Highest power used for RACE reordering");
- 
+   cmdp.setOption ("preconditionerSide", &args.precSide,
+                  "RIGHT/LEFT preconditioner to be used if preconditioning is active");
   auto result = cmdp.parse (argc, argv);
   return result == Teuchos::CommandLineProcessor::PARSE_SUCCESSFUL;
 }
@@ -1903,10 +1905,11 @@ public:
   }
 
   void
-  setPreconditionerTypeAndParameters (const std::string& precType,
+  setPreconditionerTypeAndParameters (const std::string& precType, const std::string& precSide,
                                       const Teuchos::RCP<Teuchos::ParameterList>& params)
   {
     precType_ = precType;
+    precSide_ = precSide;
     precParams_ = params;
     if (rightPrec_.get () != nullptr) {
       if (precType_ != precType) {
@@ -1991,7 +1994,14 @@ public:
 
     RCP<problem_type> problem (new problem_type (A_, rcpFromRef (X), rcpFromRef (B)));
     if (rightPrec_.get () != nullptr) {
-      problem->setRightPrec (rightPrec_);
+        if(precSide_ == "RIGHT")
+        {
+            problem->setRightPrec (rightPrec_);
+        }
+        else
+        {
+            problem->setLeftPrec (rightPrec_);
+        }
     }
     problem->setProblem ();
     solver_->setProblem (problem);
@@ -2020,6 +2030,7 @@ private:
   std::string solverType_;
   Teuchos::RCP<Teuchos::ParameterList> solverParams_;
   std::string precType_;
+  std::string precSide_;
   Teuchos::RCP<Teuchos::ParameterList> precParams_;
 
   bool equilibrate_;
@@ -2114,8 +2125,9 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
   equibParams->set ("Use diagonal to equilibrate",
                     args.useDiagonalToEquilibrate);
 
+  std::string precSide = args.precSide;
   solver.setSolverTypeAndParameters (solverType, solverParams);
-  solver.setPreconditionerTypeAndParameters (precType, precParams);
+  solver.setPreconditionerTypeAndParameters (precType, precSide, precParams);
   solver.setEquilibrationParameters (equibParams);
 
   solver.initialize ();
@@ -2339,6 +2351,41 @@ main (int argc, char* argv[])
   void* raceVoidHandle = NULL;
   int raceTunedPow = 1;
 
+  bool RACEswitchOff = false;
+  std::string RACE_precon_type = "NONE";
+
+  if(stringToUpper(args.preconditionerTypes) != "NONE")
+  {
+      if(stringToUpper(args.preconditionerTypes) == "RELAXATION")
+      {
+          if(stringToUpper(args.preconditionerSubType) == "JACOBI")
+          {
+              RACE_precon_type = "JACOBI";
+          }
+          else if(stringToUpper(args.preconditionerSubType) == "GAUSS-SEIDEL")
+          {
+              RACE_precon_type = "GAUSS-SEIDEL";
+          }
+          else if(stringToUpper(args.preconditionerSubType) == "MT GAUSS-SEIDEL")
+          {
+              RACE_precon_type = "JACOBI-GAUSS-SEIDEL";
+          }
+          else
+          {
+              RACEswitchOff = true;
+          }
+      }
+      else
+      {
+          RACEswitchOff = true;
+      }
+  }
+  if(RACEswitchOff)
+  {
+      printf("RACE does not support %s:%s preconditioner. Switching off RACE\n", args.preconditionerTypes.c_str(), args.preconditionerSubType.c_str());
+      args.useRACEreordering=false;
+  }
+
   if(args.useRACEreordering)
   {
       ParameterList RACE_params("RACE");
@@ -2346,6 +2393,8 @@ main (int argc, char* argv[])
       RACE_params.set("Cache size", atof(args.RACE_cacheSize.c_str()));
       int highestPower = atoi(args.RACE_highestPower.c_str());
       RACE_params.set("Highest power", highestPower);
+      RACE_params.set("Preconditioner", RACE_precon_type);
+      RACE_params.set("Preconditioner side", args.precSide);
       race = Teuchos::RCP<RACE_type>(new RACE_type(origA, RACE_params));
       A = race->getPermutedMatrix();
       raceVoidHandle = (void*)(race.getRawPtr());
@@ -2354,7 +2403,7 @@ main (int argc, char* argv[])
       RCP<MV> test;
       test = Teuchos::rcp (new MV(A->getRangeMap(), highestPower+1));
       std::vector<std::complex<double>> theta(highestPower, -1);
-      raceTunedPow = race->apply_GmresSstep(highestPower, *test, theta, -1);
+      raceTunedPow = race->apply_GmresSstep(highestPower, 0, *test, theta, -1);
       //raceTunedPow = race->apply(highestPower, *test, 1, 0, -1);
       printf("tuned pow = %d\n", raceTunedPow);
   }
@@ -2666,28 +2715,34 @@ main (int argc, char* argv[])
 
   // Create the solver.
   BelosIfpack2Solver<crs_matrix_type> solver (A);
-
   // Solve the linear system using various solvers and preconditioners.
   for (std::string solverType : solverTypes) {
     for (std::string precType : preconditionerTypes) {
       for (int maxIters : maxIterValues) {
         for (int restartLength : restartLengthValues) {
           for (double convTol : convergenceToleranceValues) {
-            solveAndReport (solver, *A_original, *X, *B,
-                            solverType,
-                            precType,
-                            preconditionerSubType,
-                            convTol,
-                            maxIters,
-                            restartLength,
-                            args,
-                            raceVoidHandle, raceTunedPow);
+
+              timeval start, end;
+              double start_time=0, end_time=0;
+              gettimeofday(&start, NULL);
+              start_time = start.tv_sec + start.tv_usec*1e-6;
+              solveAndReport (solver, *A_original, *X, *B,
+                      solverType,
+                      precType,
+                      preconditionerSubType,
+                      convTol,
+                      maxIters,
+                      restartLength,
+                      args,
+                      raceVoidHandle, raceTunedPow);
+              gettimeofday(&end, NULL);
+              end_time = end.tv_sec + end.tv_usec*1e-6;
+              printf("solve time (in sec): %9.5f\n", end_time-start_time);
           }
         }
       }
     }
   }
-
   Teuchos::TimeMonitor::summarize();
   return EXIT_SUCCESS;
 }

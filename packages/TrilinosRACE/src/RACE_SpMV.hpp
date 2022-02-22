@@ -23,7 +23,8 @@ namespace RACE {
 
         int arr_offset;
         int tunedPower;
-    };
+
+   };
 
 //convenience macros
 #define RACE_ENCODE_TO_VOID_SpMV(A_en, x_en, alpha_en, beta_en, arr_offset_en)\
@@ -62,14 +63,14 @@ namespace RACE {
     Scalar tmp = 0;\
     _Pragma("nounroll")\
     _Pragma("omp simd simdlen(VECTOR_LENGTH) reduction(+:tmp)")\
-    for(int idx=(int)A->rowPtr[row]; idx<(int)A->rowPtr[row+1]; ++idx)\
+    for(int idx=(int)_A_->rowPtr[row]; idx<(int)_A_->rowPtr[row+1]; ++idx)\
     {\
-        tmp += (_A_)[idx]*((_x_vec_)[A->col[idx]]);\
+        tmp += _A_->val[idx]*((_x_vec_)[_A_->col[idx]]);\
     }\
 
     /// \brief Compute <tt>x[i+1] = beta*x[i] + alpha*x[i]</tt>, where
     template <typename packtype>
-    inline void RACE_SpMV_KERNEL(int start, int end, int pow, int numa_domain, void* args)
+    inline void RACE_SpMV_KERNEL(int start, int end, int pow, int subPow, int numa_domain, void* args)
     {
     /*    using Scalar double;
         using LocalOrdinal int;
@@ -98,7 +99,7 @@ namespace RACE {
         {
             for(LocalOrdinal row=start; row<end; ++row)
             {
-                BASE_SpMV_KERNEL_IN_ROW(A->val, (*x)[cur_offset]);
+                BASE_SpMV_KERNEL_IN_ROW(A, (*x)[cur_offset]);
                 (*x)[next_offset][row] = alpha*tmp;
             }
         }
@@ -106,7 +107,7 @@ namespace RACE {
         {
             for(LocalOrdinal row=start; row<end; ++row)
             {
-                BASE_SpMV_KERNEL_IN_ROW(A->val, (*x)[cur_offset]);
+                BASE_SpMV_KERNEL_IN_ROW(A, (*x)[cur_offset]);
                 (*x)[next_offset][row] = beta*(*x)[next_offset][row] + alpha*tmp;
             }
         }

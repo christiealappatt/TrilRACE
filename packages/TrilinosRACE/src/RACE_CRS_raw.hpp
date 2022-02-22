@@ -11,12 +11,18 @@ namespace RACE {
         {
             using Scalar = typename packtype::SC;
             using LocalOrdinal = typename packtype::LO;
+            using GlobalOrdinal = typename packtype::GO;
             LocalOrdinal nrows;
             const size_t* rowPtr;
             const LocalOrdinal* col;
             const Scalar* val;
+            const Scalar* invDiag;
+            private:
+            Tpetra::Vector<Scalar, LocalOrdinal, GlobalOrdinal> invDiag_vec;
+            using Vector = typename Tpetra::Vector<Scalar, LocalOrdinal, GlobalOrdinal>;
+            public:
             using CrsMatrixType = typename packtype::CRS_type;
-            CRS_raw():nrows(0),rowPtr(NULL), col(NULL), val(NULL)
+            CRS_raw():nrows(0),rowPtr(NULL), col(NULL), val(NULL), invDiag(NULL)
             {
             }
             CRS_raw(Teuchos::RCP<CrsMatrixType> A)
@@ -25,6 +31,7 @@ namespace RACE {
             }
             void convertFromTpetraCrs(Teuchos::RCP<CrsMatrixType> A)
             {
+                invDiag = NULL;//TODO
                 if(A!=Teuchos::null)
                 {
                     nrows = A->getNodeNumRows();
@@ -35,6 +42,14 @@ namespace RACE {
                     rowPtr = rowPointers.getRawPtr();
                     col = columnIndices.getRawPtr();
                     val = values.getRawPtr();
+                    invDiag_vec = Vector(A->getRowMap());
+                    A->getLocalDiagCopy(invDiag_vec);
+                    invDiag_vec.reciprocal(invDiag_vec);
+                    invDiag = (invDiag_vec.getData()).getRawPtr();
+                    /*for(int i=0; i<10; ++i)
+                    {
+                        printf("2.invDiag[%d] = %f\n", i, invDiag[i]);
+                    }*/
                 }
                 else
                 {
@@ -42,6 +57,7 @@ namespace RACE {
                     rowPtr=NULL;
                     col=NULL;
                     val=NULL;
+                    invDiag=NULL;
                 }
             }
         };
