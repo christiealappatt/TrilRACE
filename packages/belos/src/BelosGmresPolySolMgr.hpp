@@ -49,7 +49,6 @@
 
 #include "BelosConfigDefs.hpp"
 #include "BelosTypes.hpp"
-
 #include "BelosLinearProblem.hpp"
 #include "BelosSolverManager.hpp"
 #include "BelosGmresPolyOp.hpp"
@@ -804,6 +803,16 @@ ReturnType GmresPolySolMgr<ScalarType,MV,OP>::solve ()
     Teuchos::TimeMonitor slvtimer(*timerPoly_);
 #endif
 
+#ifdef HAVE_BELOS_RACE
+  //set RACE stuff in problem
+  if(useRACE_)
+  {
+      problem_->setRACE_handle(raceVoidHandle_);
+      problem_->setRACE(true);
+  }
+#endif
+
+
     poly_Op_ = Teuchos::rcp( new gmres_poly_t( problem_, params_ ) );
     poly_dim_ = poly_Op_->polyDegree();
 
@@ -845,8 +854,8 @@ ReturnType GmresPolySolMgr<ScalarType,MV,OP>::solve ()
    // RCP<LinearProblem<ScalarType, MV, OP> > newProblem =
    //   rcp( new LinearProblem<ScalarType, MV, OP>( A, new_lhs, new_rhs ) );
        RCP<LinearProblem<ScalarType, MV, OP> > newProblem =
-      rcp( new LinearProblem<ScalarType, MV, OP>( getProblem() ) );
- 
+           rcp( new LinearProblem<ScalarType, MV, OP>( getProblem() ) );
+
     std::string solverLabel = label_ + ": Hybrid Gmres";
     newProblem->setLabel(solverLabel); 
 

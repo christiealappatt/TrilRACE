@@ -93,7 +93,7 @@ template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
 
             using complex_type = typename packtype::complex_type;
 
-            int apply_Precon(int power, vec_type &b, vec_type &x)
+            int apply_Precon(int power, const vec_type &b, vec_type &x)
             {
                 std::string precType = exec.getPrecType();
                 if( (precType=="NONE" || precType=="JACOBI") || (precType=="GAUSS-SEIDEL" || precType=="JACOBI-GAUSS-SEIDEL") )
@@ -126,7 +126,7 @@ template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
             {
                 //step size and use it
                 std::string precType = exec.getPrecType();
-                if(precType=="NONE" || precType=="JACOBI")
+                if( (precType=="NONE" || precType=="JACOBI") || (precType=="GAUSS-SEIDEL" || precType=="JACOBI-GAUSS-SEIDEL") )
                 {
                     return exec.MPK_GmresPolyPreconKernel(power, prod, y, theta, tunedPow);
                 }

@@ -39,7 +39,7 @@
 // ************************************************************************
 //@HEADER
 
-#include "BelosSolverFactory.hpp"
+#include "BelosSolverFactories.hpp"
 #include "BelosMultiVecTraits_Tpetra.hpp"
 #include "BelosOperatorTraits_Tpetra.hpp"
 #include "Belos_Tpetra_Cg.hpp"

@@ -715,6 +715,13 @@ namespace Belos {
     newProblem->setLabel(polyLabel);
     newProblem->setProblem();
     newProblem->setLSIndex( idx );
+#if defined(HAVE_BELOS_RACE) //&& defined(TPETRA_SPECIALIZATION)
+    newProblem->setRACE_handle(problem_->getRACE_handle());
+    printf("get RACE is %d\n", problem_->getRACE());
+    newProblem->setRACE(problem_->getRACE());
+    using RACE_type = RACE::frontend<typename OP::scalar_type, typename OP::local_ordinal_type, typename OP::global_ordinal_type, typename OP::node_type>;
+    Teuchos::RCP<RACE_type> raceHandle((RACE_type*) raceVoidHandle_, false);
+#endif
 
     // Create a parameter list for the GMRES iteration.
     Teuchos::ParameterList polyList;
@@ -756,7 +763,18 @@ namespace Belos {
     // Create the first block in the current Krylov basis (residual).
     Teuchos::RCP<MV> V_0 = MVT::CloneCopy( *newB );
     if ( !LP_.is_null() )
-      newProblem->applyLeftPrec( *newB, *V_0 );
+    {
+#ifdef HAVE_BELOS_RACE
+        if( (useRACE_) && (MVT::GetNumberVecs(*newB) == 1) ) //|| precon==true)
+        {
+            raceHandle->apply_Precon(1, *newB, *V_0);
+        }
+        else
+#endif
+        {
+            newProblem->applyLeftPrec( *newB, *V_0 );
+        }
+    }
     if ( damp_ )
     {
       Teuchos::RCP< MV > Vtemp = MVT::CloneCopy(*V_0);
@@ -1140,22 +1158,37 @@ namespace Belos {
     Teuchos::RCP<MV> Xtmp = MVT::Clone( x, MVT::GetNumberVecs(x) );
     Teuchos::RCP<MV> Xtmp2 = MVT::Clone( x, MVT::GetNumberVecs(x) );
 
+#ifdef HAVE_BELOS_RACE
+    using RACE_type = RACE::frontend<typename OP::scalar_type, typename OP::local_ordinal_type, typename OP::global_ordinal_type, typename OP::node_type>;
+    Teuchos::RCP<RACE_type> raceHandle((RACE_type*) raceVoidHandle_, false);
+#endif
+
+
     // Apply left preconditioner.
     if (!LP_.is_null()) {
-      problem_->applyLeftPrec( *prod, *Xtmp ); // Left precondition x into the first vector 
-      prod = Xtmp;
+#ifdef HAVE_BELOS_RACE
+        if( (useRACE_) && (MVT::GetNumberVecs(x) == 1) ) //|| precon==true)
+        {
+            raceHandle->apply_Precon(1, *prod, *Xtmp);
+        }
+        else
+#endif
+        {
+            problem_->applyLeftPrec( *prod, *Xtmp ); // Left precondition x into the first vector 
+        }
+        prod = Xtmp;
     }
 
     int i=0;
-
+/*
     bool precon = false;
     if(!LP_.is_null() || !RP_.is_null()) {
         precon = true;
     }
-
+*/
     //its already in TPETRA specialization so need to check for it
 #ifdef HAVE_BELOS_RACE
-    if( ( (!useRACE_) || (MVT::GetNumberVecs(x) > 1) ) || precon==true)
+    if( (!useRACE_) || (MVT::GetNumberVecs(x) > 1) ) //|| precon==true)
     {
 #endif
         while(i < dim_-1)
@@ -1220,9 +1253,6 @@ namespace Belos {
         {
             theta_vec[i] = complex_type(theta_(i,0), theta_(i,1));
         }
-        using RACE_type = RACE::frontend<typename OP::scalar_type, typename OP::local_ordinal_type, typename OP::global_ordinal_type, typename OP::node_type>;
-        Teuchos::RCP<RACE_type> raceHandle((RACE_type*) raceVoidHandle_, false);
-
         {
 #ifdef BELOS_TEUCHOS_TIME_MONITOR
             Teuchos::TimeMonitor updateTimer( *timerMPK_RACE_ );
@@ -1246,7 +1276,16 @@ namespace Belos {
     // Apply right preconditioner.
     if (!RP_.is_null()) {
       Teuchos::RCP<MV> Ytmp = MVT::CloneCopy(y);
-      problem_->applyRightPrec( *Ytmp, y );
+#ifdef HAVE_BELOS_RACE
+      if( (useRACE_) && (MVT::GetNumberVecs(x) == 1) ) //|| precon==true)
+      {
+          raceHandle->apply_Precon(1, *Ytmp, y);
+      }
+      else
+#endif
+      {
+          problem_->applyRightPrec( *Ytmp, y );
+      }
     }
   }
 

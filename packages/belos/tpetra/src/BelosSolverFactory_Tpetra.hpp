@@ -43,7 +43,7 @@
 #define BELOSSOLVERFACTORY_TPETRA_HPP
 
 #include "Belos_Details_Tpetra_registerSolverFactory.hpp"
-#include "BelosSolverFactory.hpp"
+#include "BelosSolverFactories.hpp"
 #include "BelosMultiVecTraits_Tpetra.hpp"
 #include "BelosOperatorTraits_Tpetra.hpp"
 

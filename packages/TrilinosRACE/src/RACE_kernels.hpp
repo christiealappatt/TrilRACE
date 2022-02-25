@@ -22,6 +22,7 @@ namespace RACE {
             using Scalar = typename packtype::SC;
             using complex_type = typename packtype::complex_type;
             using array_type = typename packtype::marray_type;
+            using const_array_type = typename packtype::const_marray_type;
             using vec_type = typename packtype::mvec_type;
 
             CRS_raw_type* A; //matrix
@@ -38,15 +39,16 @@ namespace RACE {
             RACE::Interface *ce;
 
             vec_type* workspacePolyPrecon;
+            vec_type* workspacePolyPrecon2;
             vec_type* workspaceGmresSstep;
 
             public:
-            kernels(RACE::Interface *_ce_, Teuchos::RCP<CrsMatrixType> _A_, Teuchos::ParameterList& paramList, Teuchos::RCP<CrsMatrixType> _M_=Teuchos::null): A(NULL), M(NULL), ce(NULL), workspacePolyPrecon(NULL), workspaceGmresSstep(NULL), subPow(1)
+            kernels(RACE::Interface *_ce_, Teuchos::RCP<CrsMatrixType> _A_, Teuchos::ParameterList& paramList, Teuchos::RCP<CrsMatrixType> _M_=Teuchos::null): A(NULL), M(NULL), ce(NULL), workspacePolyPrecon(NULL), workspacePolyPrecon2(NULL), workspaceGmresSstep(NULL), subPow(1)
             {
 
                 init(_ce_, _A_, paramList, _M_);
             }
-            kernels(): A(NULL), M(NULL), ce(NULL), workspacePolyPrecon(NULL), workspaceGmresSstep(NULL), precType("NONE"), precSide("NONE"), subPow(1)
+            kernels(): A(NULL), M(NULL), ce(NULL), workspacePolyPrecon(NULL), workspacePolyPrecon2(NULL), workspaceGmresSstep(NULL), precType("NONE"), precSide("NONE"), subPow(1)
             {
             }
 
@@ -99,6 +101,10 @@ namespace RACE {
                 {
                     delete workspacePolyPrecon;
                 }
+                if(workspacePolyPrecon2)
+                {
+                    delete workspacePolyPrecon2;
+                }
                 if(workspaceGmresSstep)
                 {
                     delete workspaceGmresSstep;
@@ -111,8 +117,8 @@ namespace RACE {
             void createPrecon();
 
 
-//The  second VA_ARGS is for passing arguments to ENCODE operator
-#define TrilinosRACE_MPK_KERNEL_BODY(_NAME_, ...)\
+//The third VA_ARGS is for passing arguments to ENCODE operator
+#define TrilinosRACE_MPK_KERNEL_BODY(_NAME_, ZERO_OUT_CODE, ...)\
         {\
             /*pass only pointer of x_arr, else copying this would mean each*/\
             /*thread will have a private copy of x_arr in the function and*/\
@@ -151,6 +157,7 @@ namespace RACE {
                 {\
                     RACE_ ## _NAME_ ## _setOffset(block*bestPow);/*offset array access for the iteration*/\
                     ce->executeFunction(race_power_id);\
+                    ZERO_OUT_CODE;\
                 }\
                 if(remPow > 0)\
                 {\
@@ -174,7 +181,7 @@ namespace RACE {
                 if(power > 0)
                 {
                     array_type x_arr = x.get2dViewNonConst();
-                    TrilinosRACE_MPK_KERNEL_BODY(SpMV, A, &x_arr, alpha, beta, 0);
+                    TrilinosRACE_MPK_KERNEL_BODY(SpMV, , A, &x_arr, alpha, beta, 0);
                 }
 
 #if 0
@@ -188,7 +195,7 @@ namespace RACE {
             }
 
             //Precon kernels, just performs preconditioning
-            int PreconKernel(int power, vec_type &b, vec_type &x)
+            int PreconKernel(int power, const vec_type &b, vec_type &x)
             {
                 int tunedPow = 1; //no tuning for this kernel as it is normally called for power=1
                 int forceSubPower = 1;//enforce subpower to 1
@@ -199,9 +206,9 @@ namespace RACE {
                         x.putScalar(0); //set to zero initial vector
                     }
                     array_type x_arr = x.get2dViewNonConst();
-                    array_type b_arr = b.get2dViewNonConst();
+                    const_array_type b_arr = b.get2dView();
 
-                    TrilinosRACE_MPK_KERNEL_BODY(Precon, A, &b_arr, &x_arr, 0, precType);
+                    TrilinosRACE_MPK_KERNEL_BODY(Precon, , A, &b_arr, &x_arr, 0, precType);
                 }
                 return tunedPow;
             }
@@ -232,12 +239,14 @@ namespace RACE {
 
                 if(newAllocate)
                 {
-                    workspace = new vec_type(map, ncols, false);
-                }
-
-                if(zeroOut)
-                {
-                    workspace->putScalar(0);
+                    if(zeroOut)
+                    {
+                        workspace = new vec_type(map, ncols, true);
+                    }
+                    else
+                    {
+                        workspace = new vec_type(map, ncols, false);
+                    }
                 }
             }
 
@@ -266,7 +275,7 @@ namespace RACE {
                 if(power > 0)
                 {
                     //zero-out x for GS left precon, to enable starting with
-                    //zero vec, leave out prev and prev-prev iteration
+                    //zero vec, leave out prev iteration
                     if( ((precType == "GAUSS-SEIDEL")||(precType == "JACOBI-GAUSS-SEIDEL")) && (precSide == "LEFT"))
                     {
                         //Teuchos::Range1D index(1, x.getNumVectors()-1);
@@ -283,11 +292,11 @@ namespace RACE {
                     if(needAllocation)
                     {
                         array_type preconTmp = workspaceGmresSstep->get2dViewNonConst();
-                        TrilinosRACE_MPK_KERNEL_BODY(GmresSstepKernel, A, &x_arr, theta, 0, iter, precType, precSide, &preconTmp);
+                        TrilinosRACE_MPK_KERNEL_BODY(GmresSstepKernel, , A, &x_arr, theta, 0, iter, precType, precSide, &preconTmp);
                     }
                     else
                     {
-                        TrilinosRACE_MPK_KERNEL_BODY(GmresSstepKernel, A, &x_arr, theta, 0, iter, precType, precSide, NULL);
+                        TrilinosRACE_MPK_KERNEL_BODY(GmresSstepKernel, , A, &x_arr, theta, 0, iter, precType, precSide, NULL);
                     }
 
                 }
@@ -303,7 +312,7 @@ namespace RACE {
                 //iterations
                 int allocCol = tunedPow;
                 bool tunePhase = false;
-                int forceSubPower = 0;//use already set subPower
+
                 if(allocCol <= 0)
                 {
                     //don't perform any computation during tuning phase since,
@@ -311,9 +320,10 @@ namespace RACE {
                     allocCol = ce->getHighestPower();
                     tunePhase = true;
                 }
+                allocCol = std::max(2, allocCol);//ensure minimum of 2, due to access of prev_offset in case of theta_i != 0
                 //last argument is false, since we disable zeroOut as it is not
                 //required here
-                allocateVecWorkspace(workspacePolyPrecon, prod.getMap(), allocCol+1, false);
+                allocateVecWorkspace(workspacePolyPrecon, prod.getMap(), allocCol+1, true);
 
                 //set first vector to prod
                 //Teuchos::Range1D index(0, 0);
@@ -321,18 +331,40 @@ namespace RACE {
                 Teuchos::RCP<vec_type> prod_subview = workspacePolyPrecon->getVectorNonConst(0);
                 Tpetra::deep_copy(*prod_subview, prod);
 
+                bool needAllocation = false;
+                //for preconditioner we have to create temporary work space to hold tunedPow columns
+                //iterations
+                if((precType != "NONE") && (precType != "JACOBI"))
+                {
+                    //can limit x column to allocCol but that would mean to
+                    //reset it to zero in between, else initial guess for
+                    //preconditioner will not be zero
+                    allocateVecWorkspace(workspacePolyPrecon2, prod.getMap(), allocCol+1, true);
+                    needAllocation = true;
+                }
+
+                int forceSubPower = 0;//use already set subPower
                 if(power > 0)
                 {
+
                     array_type x_arr = workspacePolyPrecon->get2dViewNonConst();
                     array_type y_arr = y.get2dViewNonConst();
-                    TrilinosRACE_MPK_KERNEL_BODY(GmresPolyPreconKernel, A, &x_arr, &y_arr, theta, 0, power, allocCol, precType, precSide, NULL);
+                    if(needAllocation)
+                    {
+                        array_type preconTmp = workspacePolyPrecon2->get2dViewNonConst();
+                        TrilinosRACE_MPK_KERNEL_BODY(GmresPolyPreconKernel, workspacePolyPrecon2->putScalar(0);, A, &x_arr, &y_arr, theta, 0, power, allocCol, precType, precSide, &preconTmp);
+                    }
+                    else
+                    {
+                        TrilinosRACE_MPK_KERNEL_BODY(GmresPolyPreconKernel, , A, &x_arr, &y_arr, theta, 0, power, allocCol, precType, precSide, NULL);
+                    }
                 }
 
                 //now in case of theta(dim-1,1)=0 or SCT::isComplex do one
                 //iteration on y
                 if(!tunePhase && (theta[power].imag()==0 || packtype::STS::isComplex))
                 {
-                    int final_col_index = power % (tunedPow+1);
+                    int final_col_index = power % (allocCol+1);
                     //Teuchos::Range1D index_final(final_col_index, final_col_index);
                     //prod_subview =  workspacePolyPrecon->subViewNonConst (index_final);
                     prod_subview = workspacePolyPrecon->getVectorNonConst(final_col_index);

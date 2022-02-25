@@ -3,6 +3,7 @@
 
 #include "RACE_CRS_raw.hpp"
 #include "RACE_SpMV.hpp"
+#include "RACE_Precon.hpp"
 #include <RACE/interface.h>
 #include "TrilinosRACE_config.h"
 
@@ -119,13 +120,107 @@ namespace RACE {
     }
 #endif
 
-#define BASE_GmresPolyPreconKernel_MPK(...)\
-    for(LocalOrdinal row=start; row<end; ++row)\
+#define BASE_GmresPolyPreconKernel_MPK_w_PRECON(_precon_, ...)\
+    if(preconType == "NONE")\
     {\
-        BASE_SpMV_KERNEL_IN_ROW(A, (*mpkInArray)[mpk_cur_offset]);\
-        __VA_ARGS__;\
+        array_type* mpkInArray = x;\
+        array_type* mpkOutArray = x;\
+        int mpk_cur_offset = cur_offset;\
+        int mpk_next_offset = next_offset;\
+        for(LocalOrdinal row=start; row<end; ++row)\
+        {\
+            BASE_SpMV_KERNEL_IN_ROW(A, (*mpkInArray)[mpk_cur_offset]);\
+            (*mpkOutArray)[mpk_next_offset][row] = tmp;\
+            __VA_ARGS__;\
+        }\
     }\
-
+    else if(preconType =="JACOBI")\
+    {\
+        array_type* preconInArray = x;\
+        array_type* preconOutArray = x;\
+        int precon_cur_offset = cur_offset;\
+        int precon_next_offset = next_offset;\
+        if(preconSide == "RIGHT")\
+        {\
+            for(LocalOrdinal row=start; row<end; ++row)\
+            {\
+                BASE_PRECON_JACOBI_w_SpMV_RIGHT_KERNEL_IN_ROW(A, (*preconInArray)[precon_cur_offset], (*preconOutArray)[precon_next_offset]);\
+                (*preconOutArray)[precon_next_offset][row] = tmp;\
+                __VA_ARGS__;\
+            }\
+        }\
+        else\
+        {\
+            for(LocalOrdinal row=start; row<end; ++row)\
+            {\
+                BASE_PRECON_JACOBI_w_SpMV_LEFT_KERNEL_IN_ROW(A, (*preconInArray)[precon_cur_offset], (*preconOutArray)[precon_next_offset]);\
+                (*preconOutArray)[precon_next_offset][row] = tmp;\
+                __VA_ARGS__;\
+            }\
+        }\
+    }\
+    else if((preconType == "GAUSS-SEIDEL") || (preconType == "JACOBI-GAUSS-SEIDEL"))\
+    {\
+        if(preconSide == "RIGHT")\
+        {\
+            array_type* preconInArray = x;\
+            array_type* preconOutArray = preconTmp;\
+            int precon_cur_offset = cur_offset;\
+            int precon_next_offset = cur_offset;\
+            array_type* mpkInArray = preconTmp;\
+            array_type* mpkOutArray = x;\
+            int mpk_cur_offset = cur_offset;\
+            int mpk_next_offset = next_offset;\
+            if((subPow%2) == 1)\
+            {\
+                for(LocalOrdinal row=start; row<end; ++row)\
+                {\
+                    BASE_PRECON_ ##_precon_## _KERNEL_IN_ROW(A, (*preconInArray)[precon_cur_offset], (*preconOutArray)[precon_next_offset]);\
+                    (*preconOutArray)[precon_next_offset][row] = tmp;\
+                }\
+            }\
+            else\
+            {\
+                for(LocalOrdinal row=start; row<end; ++row)\
+                {\
+                    BASE_SpMV_KERNEL_IN_ROW(A, (*mpkInArray)[mpk_cur_offset]);\
+                    (*mpkOutArray)[mpk_next_offset][row] = tmp;\
+                    __VA_ARGS__;\
+                }\
+            }\
+        }\
+        else\
+        {\
+            array_type* mpkInArray = x;\
+            array_type* mpkOutArray = preconTmp;\
+            int mpk_cur_offset = cur_offset;\
+            int mpk_next_offset = cur_offset;\
+            array_type* preconInArray = preconTmp;\
+            array_type* preconOutArray = x;\
+            int precon_cur_offset = cur_offset;\
+            int precon_next_offset = next_offset;\
+            if((subPow%2) == 1)\
+            {\
+                for(LocalOrdinal row=start; row<end; ++row)\
+                {\
+                    BASE_SpMV_KERNEL_IN_ROW(A, (*mpkInArray)[mpk_cur_offset]);\
+                    (*mpkOutArray)[mpk_next_offset][row] = tmp;\
+                }\
+                for(LocalOrdinal row=start; row<end; ++row)\
+                {\
+                    BASE_PRECON_ ##_precon_## _KERNEL_IN_ROW(A, (*preconInArray)[precon_cur_offset], (*preconOutArray)[precon_next_offset]);\
+                    (*preconOutArray)[precon_next_offset][row] = tmp;\
+                }\
+            }\
+            else\
+            {\
+                for(LocalOrdinal row=start; row<end; ++row)\
+                {\
+                    __VA_ARGS__;\
+                }\
+            }\
+        }\
+    }\
 
 
 #define GENERATE_KERNEL_GmresPolyPreconKernel(_precon_)\
@@ -133,60 +228,69 @@ namespace RACE {
     inline void RACE_GmresPolyPreconKernel_ ## _precon_ ## _KERNEL(int start, int end, int pow, int subPow, int numa_domain, void* args)\
     {\
         RACE_DECODE_FROM_VOID_GmresPolyPreconKernel(args);\
-        /*wrap around offset so we can reuse prod (x), and keep max. col size of
-        prod with maxSteps*/\
-        const int cur_offset = ((pow-1)+arr_offset)%(tunedPower+1);\
-        const int next_offset = (pow+arr_offset)%(tunedPower+1);\
+        int wrap_fac = std::max(3, tunedPower+1);/*min of 3 to ensure prev_offset access is stored*/\
+        /*wrap around offset so we can reuse prod (x),*/\
+        /*and keep max. col size of prod with maxSteps*/\
+        const int cur_offset = ((pow-1)+arr_offset)%(wrap_fac);\
+        const int next_offset = (pow+arr_offset)%(wrap_fac);\
         const int cur_offset_wo_wrapping = (pow-1)+arr_offset;\
         Scalar theta_r = theta[cur_offset_wo_wrapping].real();\
         Scalar theta_r_inv = 1.0/theta_r;\
         Scalar theta_i = theta[cur_offset_wo_wrapping].imag();\
-        array_type* mpkInArray = x;\
-        array_type* mpkOutArray = x;\
-        int mpk_cur_offset = cur_offset;\
-        int mpk_next_offset = next_offset;\
         if((theta_i == 0) || (packtype::STS::isComplex))\
         {\
-            BASE_GmresPolyPreconKernel_MPK(\
-                    (*y)[0][row] = (*y)[0][row] + theta_r_inv*(*mpkOutArray)[cur_offset][row];\
-                    (*mpkOutArray)[next_offset][row] = (*mpkOutArray)[cur_offset][row] - theta_r_inv*tmp;\
-                    )\
+            BASE_GmresPolyPreconKernel_MPK_w_PRECON(_precon_,\
+                    (*y)[0][row] = (*y)[0][row] + theta_r_inv*(*x)[cur_offset][row];\
+                    (*x)[next_offset][row] = (*x)[cur_offset][row] - theta_r_inv*(*x)[next_offset][row];\
+                    );\
         }\
         else /*if choosing this branch ensure total power is even*/\
         {\
             Scalar mod = theta_r*theta_r + theta_i*theta_i;\
             Scalar mod_inv = 1/mod;\
-            const int prev_offset = ((pow-2)+arr_offset)%(tunedPower+1);\
-            if(pow % 2)\
+            bool isConj = false;\
+            if(cur_offset_wo_wrapping != 0)\
             {\
-                BASE_GmresPolyPreconKernel_MPK(\
-                        (*mpkOutArray)[next_offset][row] = 2*theta_r*(*mpkOutArray)[cur_offset][row] - tmp;\
-                        (*y)[0][row] = (*y)[0][row] + mod_inv*(*mpkOutArray)[next_offset][row];\
-                        )\
+                complex_type prev_theta = theta[cur_offset_wo_wrapping-1];\
+                if(std::conj(theta[cur_offset_wo_wrapping-1]) == theta[cur_offset_wo_wrapping])\
+                {\
+                    isConj=true;\
+                }\
             }\
-            else if((pow+arr_offset) != maxSteps)\
+            const int prev_offset = ((pow-2)+arr_offset)%(wrap_fac);\
+            /*If previous was not conjugate, else should take the other branch*/\
+            if(!isConj)\
             {\
-                BASE_GmresPolyPreconKernel_MPK(\
-                        (*mpkOutArray)[next_offset][row] = (*mpkOutArray)[prev_offset][row] - mod_inv*tmp;\
+                BASE_GmresPolyPreconKernel_MPK_w_PRECON(_precon_,\
+                        (*x)[next_offset][row] = 2*theta_r*(*x)[cur_offset][row] - (*x)[next_offset][row];\
+                        (*y)[0][row] = (*y)[0][row] + mod_inv*(*x)[next_offset][row];\
+                        );\
+            }\
+            else if((pow+arr_offset) < maxSteps)\
+            {\
+                BASE_GmresPolyPreconKernel_MPK_w_PRECON(_precon_,\
+                        (*x)[next_offset][row] = (*x)[prev_offset][row] - mod_inv*(*x)[next_offset][row];\
                         );\
             }\
         }\
     }\
 
-    GENERATE_KERNEL_GmresPolyPreconKernel(NONE);
 
-    //dispatcher function
+    GENERATE_KERNEL_GmresPolyPreconKernel(NONE);
+    GENERATE_KERNEL_GmresPolyPreconKernel(GAUSS_SEIDEL);
+    GENERATE_KERNEL_GmresPolyPreconKernel(JACOBI_GAUSS_SEIDEL);
+
+
+       //dispatcher function
     template<typename packtype>
         inline void RACE_GmresPolyPreconKernel_KERNEL(int start, int end,int pow, int subPow, int numa_domain, void* args)
         {
-            using arg_type = kernelArgGmresSstep<packtype>;
+            using arg_type = kernelArgGmresPolyPrecon<packtype>;
             arg_type* arg_decode = (arg_type*) args;
             std::string preconType = arg_decode->preconType;
             std::string preconSide = arg_decode->preconSide;
 
-            RACE_GmresPolyPreconKernel_NONE_KERNEL<packtype>( start, end, pow, subPow, numa_domain, args);
-
-            /*if(preconType == "JACOBI")
+            if(preconType == "JACOBI")
             {
                 RACE_GmresPolyPreconKernel_NONE_KERNEL<packtype>( start, end, pow, subPow, numa_domain, args);
             }
@@ -201,7 +305,7 @@ namespace RACE {
             else
             {
                 RACE_GmresPolyPreconKernel_NONE_KERNEL<packtype>( start, end, pow, subPow, numa_domain, args);
-            }*/
+            }
         }
 
 

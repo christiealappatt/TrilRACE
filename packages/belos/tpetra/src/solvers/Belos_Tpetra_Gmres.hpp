@@ -48,6 +48,11 @@
 #include "Teuchos_SerialDenseMatrix.hpp"
 #include "Teuchos_SerialDenseVector.hpp"
 
+#ifdef HAVE_BELOS_RACE
+#include "RACE_frontend.hpp"
+#endif
+
+
 namespace BelosTpetra {
 namespace Impl {
 
@@ -546,6 +551,11 @@ protected:
     MV Q (B.getMap (), restart+1, zeroOut);
     vec_type P0 = * (Q.getVectorNonConst (0));
 
+#ifdef HAVE_BELOS_RACE
+    using RACE_type = RACE::frontend<typename OP::scalar_type, typename OP::local_ordinal_type, typename OP::global_ordinal_type, typename OP::node_type>;
+    Teuchos::RCP<RACE_type> raceHandle((RACE_type*) input.raceVoidHandle, false);
+#endif
+
     // initial residual (making sure R = B - Ax)
     {
       Teuchos::TimeMonitor LocalTimer (*spmvTimer);
@@ -556,7 +566,16 @@ protected:
     if (input.precoSide == "left") {
       {
         Teuchos::TimeMonitor LocalTimer (*precTimer);
-        M.apply (R, P0);
+#ifdef HAVE_BELOS_RACE
+        if(input.useRACE)
+        {
+            raceHandle->apply_Precon(1, R, P0);
+        }
+        else
+#endif
+        {
+            M.apply (R, P0);
+        }
       }
       b_norm = P0.norm2 (); // residual norm, left-preconditioned
     }
@@ -633,7 +652,17 @@ protected:
         else if (input.precoSide == "right") {
           {
             Teuchos::TimeMonitor LocalTimer (*precTimer);
-            M.apply (P, MP);
+#ifdef HAVE_BELOS_RACE
+            if(input.useRACE)
+            {
+                raceHandle->apply_Precon(1, P, MP);
+            }
+            else
+#endif
+            {
+                M.apply (P, MP);
+            }
+
           }
           {
             Teuchos::TimeMonitor LocalTimer (*spmvTimer);
@@ -647,7 +676,17 @@ protected:
           }
           {
             Teuchos::TimeMonitor LocalTimer (*precTimer);
-            M.apply (MP, AP);
+#ifdef HAVE_BELOS_RACE
+            if(input.useRACE)
+            {
+                raceHandle->apply_Precon(1, MP, AP);
+            }
+            else
+#endif
+            {
+                M.apply (MP, AP);
+            }
+
           }
         }
         output.numIters++;
@@ -709,7 +748,16 @@ protected:
           MVT::MvTimesMatAddMv (one, *Qj, y_iter, zero, R);
           {
             Teuchos::TimeMonitor LocalTimer (*precTimer);
-            M.apply (R, MP);
+#ifdef HAVE_BELOS_RACE
+            if(input.useRACE)
+            {
+                raceHandle->apply_Precon(1, R, MP);
+            }
+            else
+#endif
+            {
+                M.apply (R, MP);
+            }
           }
           X.update (one, MP, one);
         }
@@ -744,11 +792,20 @@ protected:
           iter = 0;
           P0 = * (Q.getVectorNonConst (0));
           if (input.precoSide == "left") {
-            {
-              Teuchos::TimeMonitor LocalTimer (*precTimer);
-              M.apply (R, P0);
-            }
-            r_norm = P0.norm2 (); // norm
+              {
+                  Teuchos::TimeMonitor LocalTimer (*precTimer);
+#ifdef HAVE_BELOS_RACE
+                  if(input.useRACE)
+                  {
+                      raceHandle->apply_Precon(1, R, P0);
+                  }
+                  else
+#endif
+                  {
+                      M.apply (R, P0);
+                  }
+              }
+              r_norm = P0.norm2 (); // norm
           }
           else {
             // set the starting vector
@@ -893,9 +950,26 @@ protected:
                H3.values(), H3.stride(), y2.values (), y2.stride ());
     Teuchos::Range1D cols(0, check);
     Teuchos::RCP<const MV> Qj = Q.subView(cols);
+
+#ifdef HAVE_BELOS_RACE
+    using RACE_type = RACE::frontend<typename OP::scalar_type, typename OP::local_ordinal_type, typename OP::global_ordinal_type, typename OP::node_type>;
+    Teuchos::RCP<RACE_type> raceHandle((RACE_type*) input.raceVoidHandle, false);
+#endif
+
     if (input.precoSide == "right") {
       MVT::MvTimesMatAddMv (one, *Qj, y2, zero, R);
-      M.apply (R, MP);
+      {
+#ifdef HAVE_BELOS_RACE
+          if(input.useRACE)
+          {
+              raceHandle->apply_Precon(1, R, MP);
+          }
+          else
+#endif
+          {
+              M.apply (R, MP);
+          }
+      }
       X2.update (one, MP, one);
     }
     else {
@@ -942,10 +1016,29 @@ protected:
         if (input.precoSide == "left") {
           MV AM (Q.getMap (), check+1);
           A.apply (*Q_prev, AM);
-          M.apply (AM, AQ);
+#ifdef HAVE_BELOS_RACE
+          if(input.useRACE)
+          {
+              raceHandle->apply_Precon(1, AM, AQ);
+          }
+          else
+#endif
+          {
+              M.apply (AM, AQ);
+          }
+
         } else if (input.precoSide == "right") {
           MV AM (Q.getMap (), check+1);
-          M.apply (*Q_prev, AM);
+#ifdef HAVE_BELOS_RACE
+          if(input.useRACE)
+          {
+              raceHandle->apply_Precon(1, *Q_prev, AM);
+          }
+          else
+#endif
+          {
+              M.apply (*Q_prev, AM);
+          }
           A.apply (AM, AQ);
         } else {
           A.apply (*Q_prev, AQ);

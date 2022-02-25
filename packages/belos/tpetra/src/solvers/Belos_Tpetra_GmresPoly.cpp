@@ -37,12 +37,12 @@
 // ************************************************************************
 //@HEADER
 
-#include "BelosSolverFactory.hpp"
-#include "BelosSolverFactory_Tpetra.hpp"
 //invoke Tpetra template specialization
-#define TPETRA_SPECIALIZATION
+//#define TPETRA_SPECIALIZATION
+#include "BelosSolverFactories.hpp"
+#include "BelosSolverFactory_Tpetra.hpp"
 #include "BelosGmresPolySolMgr.hpp"
-#undef TPETRA_SPECIALIZATION
+//#undef TPETRA_SPECIALIZATION
 #include "TpetraCore_ETIHelperMacros.h"
 #include "Teuchos_TypeNameTraits.hpp"
 #include <iostream>

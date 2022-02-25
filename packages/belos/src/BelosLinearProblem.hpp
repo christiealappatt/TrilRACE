@@ -50,6 +50,11 @@
 #include "BelosOperatorTraits.hpp"
 #include "Teuchos_ParameterList.hpp"
 #include "Teuchos_TimeMonitor.hpp"
+#include "BelosConfigDefs.hpp"
+
+#ifdef HAVE_BELOS_RACE
+    #include "RACE_frontend.hpp"
+#endif
 
 namespace Belos {
 
@@ -501,8 +506,13 @@ namespace Belos {
       \note This residual will be preconditioned if the system has a left preconditioner.
     */
     virtual void computeCurrPrecResVec( MV* R, const MV* X = 0, const MV* B = 0 ) const;
-    
-    //@}
+
+    void setRACE_handle(void* raceVoidHandle);
+    void* getRACE_handle();
+
+    void setRACE(bool on_or_off);
+    bool getRACE();
+        //@}
   
   protected:
 
@@ -560,12 +570,18 @@ namespace Belos {
     //! Has the linear problem to solve been set?
     bool isSet_;
 
-    /// Whether the operator A is symmetric (in real arithmetic, or
+     /// Whether the operator A is symmetric (in real arithmetic, or
     /// Hermitian in complex arithmetic).
     bool isHermitian_;
 
     //! Has the current approximate solution been updated?
     bool solutionUpdated_;    
+
+    //!Set to true to enable RACE for preconditioning
+#if defined(HAVE_BELOS_RACE) //&& defined(TPETRA_SPECIALIZATION)
+    bool useRACE_;
+    void* raceVoidHandle_;//((RACE_type*) raceVoidHandle_, false);
+#endif
 
     //@}
    
@@ -591,6 +607,10 @@ namespace Belos {
     isSet_(false),
     isHermitian_(false),
     solutionUpdated_(false),
+#if defined(HAVE_BELOS_RACE) //&& defined(TPETRA_SPECIALIZATION)
+    useRACE_(false),
+    raceVoidHandle_(NULL),
+#endif
     label_("Belos")
   {
   }
@@ -610,6 +630,10 @@ namespace Belos {
     isSet_(false),
     isHermitian_(false),
     solutionUpdated_(false),
+#if defined(HAVE_BELOS_RACE) //&& defined(TPETRA_SPECIALIZATION)
+    useRACE_(false),
+    raceVoidHandle_(NULL),
+#endif
     label_("Belos")
   {
   }
@@ -636,10 +660,70 @@ namespace Belos {
     isSet_(Problem.isSet_),
     isHermitian_(Problem.isHermitian_),
     solutionUpdated_(Problem.solutionUpdated_),
+#if defined(HAVE_BELOS_RACE) //&& defined(TPETRA_SPECIALIZATION)
+    useRACE_(Problem.useRACE_),
+    raceVoidHandle_(Problem.raceVoidHandle_),
+#endif
     label_(Problem.label_)
   {
+#if defined(HAVE_BELOS_RACE) //&& defined(TPETRA_SPECIALIZATION)
+#endif
   }
-  
+
+  template <class ScalarType, class MV, class OP>
+  void LinearProblem<ScalarType,MV,OP>::setRACE_handle(void* raceVoidHandle)
+  {
+#if defined(HAVE_BELOS_RACE) && defined(TPETRA_SPECIALIZATION)
+      raceVoidHandle_ = raceVoidHandle;
+#endif
+
+  }
+
+  template <class ScalarType, class MV, class OP>
+  void* LinearProblem<ScalarType,MV,OP>::getRACE_handle()
+  {
+#if defined(HAVE_BELOS_RACE)
+      return raceVoidHandle_;
+#else
+      return NULL;
+#endif
+  }
+
+  template <class ScalarType, class MV, class OP>
+  void LinearProblem<ScalarType,MV,OP>::setRACE(bool on_or_off)
+  {
+
+#if defined(HAVE_BELOS_RACE) && defined(TPETRA_SPECIALIZATION)
+      if(on_or_off == true)
+      {
+          if(raceVoidHandle_ != NULL)
+          {
+              useRACE_ = true;
+          }
+          else
+          {
+              useRACE_ = false;
+              printf("RACE not being switched on, since raceHandle is missing\n");
+          }
+      }
+      else
+#endif
+      {
+          //printf("RACE not switched on\n");
+      }
+  }
+
+  template <class ScalarType, class MV, class OP>
+  bool LinearProblem<ScalarType,MV,OP>::getRACE()
+  {
+#if defined(HAVE_BELOS_RACE)
+      return useRACE_;
+#else
+      return false;
+#endif
+  }
+
+
   template <class ScalarType, class MV, class OP>
   void LinearProblem<ScalarType,MV,OP>::setLSIndex(const std::vector<int>& index)
   {
@@ -1036,7 +1120,20 @@ namespace Belos {
 #ifdef BELOS_TEUCHOS_TIME_MONITOR
       Teuchos::TimeMonitor PrecTimer(*timerPrec_);
 #endif
-      OPT::Apply( *LP_,x, y);
+
+#if defined(HAVE_BELOS_RACE) && defined(TPETRA_SPECIALIZATION)
+      if(useRACE_ && (MVT::GetNumberVecs(x) == 1))
+      {
+          using RACE_type = RACE::frontend<typename OP::scalar_type, typename OP::local_ordinal_type, typename OP::global_ordinal_type, typename OP::node_type>;
+          Teuchos::RCP<RACE_type> raceHandle((RACE_type*) raceVoidHandle_, false);
+
+          raceHandle->apply_Precon(1, x, y);
+      }
+      else
+#endif
+      {
+          OPT::Apply( *LP_,x, y);
+      }
     }
     else {
       MVT::MvAddMv( Teuchos::ScalarTraits<ScalarType>::one(), x, 
@@ -1050,7 +1147,19 @@ namespace Belos {
 #ifdef BELOS_TEUCHOS_TIME_MONITOR
       Teuchos::TimeMonitor PrecTimer(*timerPrec_);
 #endif
-      OPT::Apply( *RP_,x, y);
+
+#if defined(HAVE_BELOS_RACE) && defined(TPETRA_SPECIALIZATION)
+      if(useRACE_ && (MVT::GetNumberVecs(x) == 1))
+      {
+          using RACE_type = RACE::frontend<typename OP::scalar_type, typename OP::local_ordinal_type, typename OP::global_ordinal_type, typename OP::node_type>;
+          Teuchos::RCP<RACE_type> raceHandle((RACE_type*) raceVoidHandle_, false);
+          raceHandle->apply_Precon(1, x, y);
+      }
+      else
+#endif
+      {
+          OPT::Apply( *RP_,x, y);
+      }
     }
     else {
       MVT::MvAddMv( Teuchos::ScalarTraits<ScalarType>::one(), x, 

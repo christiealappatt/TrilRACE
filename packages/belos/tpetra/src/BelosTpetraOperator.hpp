@@ -55,7 +55,7 @@
 #include "BelosStatusTest.hpp"
 #include "BelosOutputManager.hpp"
 #include "BelosTpetraAdapter.hpp"
-#include "BelosSolverFactory.hpp"
+#include "BelosSolverFactories.hpp"
 
 #include "Teuchos_ParameterList.hpp"
 

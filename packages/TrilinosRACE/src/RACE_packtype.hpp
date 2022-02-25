@@ -19,6 +19,7 @@ namespace RACE
                // <Scalar, LocalOrdinal, GlobalOrdinal, Node> CRS_raw_type;
                 typedef Tpetra::MultiVector<Scalar, LocalOrdinal, GlobalOrdinal, Node> mvec_type;
                 typedef Teuchos::ArrayRCP<Teuchos::ArrayRCP<Scalar> > marray_type;
+                typedef Teuchos::ArrayRCP<Teuchos::ArrayRCP<const Scalar> > const_marray_type;
                 typedef Teuchos::ScalarTraits<SC> STS;
                 typedef typename STS::magnitudeType real_type;
                 typedef typename std::complex<real_type> complex_type;

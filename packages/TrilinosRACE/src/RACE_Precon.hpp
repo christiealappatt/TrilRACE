@@ -14,8 +14,9 @@ namespace RACE {
     {
         using complex_type = typename packtype::complex_type;
         using array_type = typename packtype::marray_type;
+        using const_array_type = typename packtype::const_marray_type;
 
-        array_type* b;
+        const_array_type* b;
         std::string preconType;
     };
 
@@ -105,13 +106,14 @@ namespace RACE {
     using arg_type = kernelArgPrecon<packtype>;\
     using CRS_raw_type = typename packtype::CRS_raw_type;\
     using array_type = typename packtype::marray_type;\
+    using const_array_type = typename packtype::const_marray_type;\
     using Scalar = typename packtype::SC;\
     using LocalOrdinal = typename packtype::LO;\
     using complex_type = typename packtype::complex_type;\
     arg_type* arg_decode = (arg_type*) voidArg;\
     CRS_raw_type* A = arg_decode->A;\
     array_type* x = arg_decode->x;\
-    array_type* b = arg_decode->b;\
+    const_array_type* b = arg_decode->b;\
     int arr_offset = arg_decode->arr_offset;\
     std::string preconType = arg_decode->preconType;\
 
@@ -136,7 +138,7 @@ namespace RACE {
         }\
         else\
         {\
-            array_type* preconInArray = b;\
+            const_array_type* preconInArray = b;\
             int precon_cur_offset = cur_offset;\
             array_type* preconOutArray = x;\
             int precon_next_offset = cur_offset;\

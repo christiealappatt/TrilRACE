@@ -37,7 +37,7 @@
 // ************************************************************************
 //@HEADER
 
-#include "BelosSolverFactory.hpp"
+#include "BelosSolverFactories.hpp"
 #include "BelosSolverFactory_Tpetra.hpp"
 #include "BelosRCGSolMgr.hpp"
 #include "TpetraCore_ETIHelperMacros.h"
