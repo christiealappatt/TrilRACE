@@ -717,7 +717,6 @@ namespace Belos {
     newProblem->setLSIndex( idx );
 #if defined(HAVE_BELOS_RACE) //&& defined(TPETRA_SPECIALIZATION)
     newProblem->setRACE_handle(problem_->getRACE_handle());
-    printf("get RACE is %d\n", problem_->getRACE());
     newProblem->setRACE(problem_->getRACE());
     using RACE_type = RACE::frontend<typename OP::scalar_type, typename OP::local_ordinal_type, typename OP::global_ordinal_type, typename OP::node_type>;
     Teuchos::RCP<RACE_type> raceHandle((RACE_type*) raceVoidHandle_, false);

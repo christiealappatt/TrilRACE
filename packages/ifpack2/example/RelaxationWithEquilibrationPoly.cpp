@@ -1929,6 +1929,7 @@ public:
       }
       else {
         solver_->setParameters (params);
+
       }
     }
   }
@@ -2081,17 +2082,17 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
   solverParams->set("Polynomial Tolerance", atof(args.polynomialTol.c_str()));
   solverParams->set("Random RHS", false);//disable random RHS; remove uncertainity with number of threads
   solverParams->set("Maximum Degree", atoi(args.polynomialDegree.c_str()));
+
   solverParams->set("Outer Solver", solverType);
   if(args.useRACEreordering) 
   {
-      printf("Setting solver params\n");
       solverParams->set("RACE void handle", raceVoidHandle);
       solverParams->set("Use RACE", true);
       solverParams->set("RACE tuned power", raceTunedPow);
   }
 
 
-  RCP<ParameterList> outerSolverParams (new ParameterList ("Belos"));
+  RCP<ParameterList> outerSolverParams (new ParameterList ("Belos outer solver"));
   //Teuchos::ParameterList outerSolverParams;
   if (args.solverVerbose) {
     outerSolverParams->set ("Verbosity",
@@ -2108,12 +2109,12 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
       outerSolverParams->set ("Maximum Restarts", restartLength * maxIters);
       outerSolverParams->set ("Orthogonalization", args.orthogonalizationMethod);
   }
-  if( (solverType == "TPETRA GMRES S-STEP") && args.useRACEreordering) {
+/*  if( (solverType == "TPETRA GMRES S-STEP") && args.useRACEreordering) {
       outerSolverParams->set("RACE void handle", raceVoidHandle);
       outerSolverParams->set("Use RACE", true);
       outerSolverParams->set("RACE tuned power", raceTunedPow);
   }
-
+*/
 
   solverParams->set("Outer Solver Params", *outerSolverParams);
 
@@ -2778,15 +2779,16 @@ main (int argc, char* argv[])
   }
 #endif // defined(HAVE_IFPACK2_AZTECOO) && defined(HAVE_IFPACK2_EPETRA)
 
-  // Create the solver.
-  BelosIfpack2Solver<crs_matrix_type> solver (A);
-
   // Solve the linear system using various solvers and preconditioners.
   for (std::string solverType : solverTypes) {
     for (std::string precType : preconditionerTypes) {
       for (int maxIters : maxIterValues) {
         for (int restartLength : restartLengthValues) {
           for (double convTol : convergenceToleranceValues) {
+              // Create the solver.
+              BelosIfpack2Solver<crs_matrix_type> solver (A);
+
+
               timeval start, end;
               double start_time=0, end_time=0;
               gettimeofday(&start, NULL);

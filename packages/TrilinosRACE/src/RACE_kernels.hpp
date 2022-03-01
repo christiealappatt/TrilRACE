@@ -239,14 +239,11 @@ namespace RACE {
 
                 if(newAllocate)
                 {
-                    if(zeroOut)
-                    {
-                        workspace = new vec_type(map, ncols, true);
-                    }
-                    else
-                    {
-                        workspace = new vec_type(map, ncols, false);
-                    }
+                    workspace = new vec_type(map, ncols, zeroOut);
+                }
+                else if(zeroOut)
+                {
+                    workspace->putScalar(0);
                 }
             }
 

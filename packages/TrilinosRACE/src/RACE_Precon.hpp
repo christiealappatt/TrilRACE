@@ -75,8 +75,8 @@ namespace RACE {
     for(int idx=(int)_A_->rowPtr[row]; idx<(int)_A_->rowPtr[row+1]; ++idx)\
     {\
         int col_idx = _A_->col[idx];\
-        Scalar value = ((col_idx >= start) && (col_idx < end))?(_A_->val[idx]*((_xInit_vec_)[col_idx])):0;\
-        tmp += value;\
+        Scalar value = ((col_idx >= start) && (col_idx < row))?(_A_->val[idx]*((_xInit_vec_)[col_idx])):0;\
+        tmp = tmp+value;\
     }\
     tmp = _xInit_vec_[row] + (_A_->invDiag[row]) * (_b_vec_[row] - tmp);\
 

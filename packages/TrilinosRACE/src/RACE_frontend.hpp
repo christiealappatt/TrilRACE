@@ -95,6 +95,10 @@ template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
 
             int apply_Precon(int power, const vec_type &b, vec_type &x)
             {
+                // timer
+                Teuchos::RCP< Teuchos::Time > timer  = Teuchos::TimeMonitor::getNewCounter ("RACE::Prec-apply");
+                Teuchos::TimeMonitor LocalTimer (*timer);
+
                 std::string precType = exec.getPrecType();
                 if( (precType=="NONE" || precType=="JACOBI") || (precType=="GAUSS-SEIDEL" || precType=="JACOBI-GAUSS-SEIDEL") )
                 {
@@ -109,6 +113,10 @@ template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
 
             int apply_GmresSstep(int power, int iter, vec_type &x, std::vector<complex_type> theta, int tunedPow=1)
             {
+                // timer
+                Teuchos::RCP< Teuchos::Time > timer  = Teuchos::TimeMonitor::getNewCounter ("RACE::GmresSstep kernel");
+                Teuchos::TimeMonitor LocalTimer (*timer);
+
                 std::string precType = exec.getPrecType();
                 if( (precType=="NONE" || precType=="JACOBI") || (precType=="GAUSS-SEIDEL" || precType=="JACOBI-GAUSS-SEIDEL") )
                 {
@@ -124,6 +132,11 @@ template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
 
             int apply_GmresPolyPrecon(int power, vec_type &prod, vec_type &y, std::vector<complex_type> theta, int tunedPow=1)
             {
+                // timer
+                Teuchos::RCP< Teuchos::Time > timer  = Teuchos::TimeMonitor::getNewCounter ("RACE::GmresPoly kernel");
+                Teuchos::TimeMonitor LocalTimer (*timer);
+
+
                 //step size and use it
                 std::string precType = exec.getPrecType();
                 if( (precType=="NONE" || precType=="JACOBI") || (precType=="GAUSS-SEIDEL" || precType=="JACOBI-GAUSS-SEIDEL") )
