@@ -1594,8 +1594,8 @@ struct CmdLineArgs {
   std::string convergenceToleranceValues = "1.0e-2";
   std::string maxIterValues = "100";
   std::string restartLengthValues = "20";
-  std::string preconditionerTypes = "RELAXATION";
-  std::string preconditionerSubType = "Jacobi";
+  std::string preconditionerTypes = "NONE";
+  std::string preconditionerSubType = "NONE";
   bool solverVerbose = false;
   bool equilibrate = false;
   bool assumeSymmetric = false;
@@ -2082,6 +2082,9 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
   solverParams->set("Polynomial Tolerance", atof(args.polynomialTol.c_str()));
   solverParams->set("Random RHS", false);//disable random RHS; remove uncertainity with number of threads
   solverParams->set("Maximum Degree", atoi(args.polynomialDegree.c_str()));
+  solverParams->set ("Num Blocks", restartLength);
+  solverParams->set ("Maximum Restarts", restartLength * maxIters);
+  solverParams->set("Orthogonalization", args.orthogonalizationMethod);
 
   solverParams->set("Outer Solver", solverType);
   if(args.useRACEreordering) 
@@ -2104,7 +2107,7 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
 
   outerSolverParams->set ("Convergence Tolerance", convergenceTolerance);
   outerSolverParams->set ("Maximum Iterations", maxIters);
-  if (solverType == "GMRES") {
+  if( (solverType == "GMRES") || ((solverType == "TPETRA GMRES")  || (solverType == "TPETRA GMRES S-STEP")) ) {
       outerSolverParams->set ("Num Blocks", restartLength);
       outerSolverParams->set ("Maximum Restarts", restartLength * maxIters);
       outerSolverParams->set ("Orthogonalization", args.orthogonalizationMethod);
@@ -2142,24 +2145,44 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
       precParams->set ("relaxation: type", precSubType);
 
     }
+    else if(precType == "RILUK") {
+        if(precSubType != "NONE")
+        {
+            precParams->set ("fact: iluk level-of-fill", atoi(precSubType.c_str()));
+        }
+        //CA: activate multicore support
+        precParams->set ("fact: type", "KSPILUK");
+        //precParams->set("trisolver: type", "KSPTRSV");
+        //CA:use ShyLU since this is as for my experiment with G3_circuit the fastest parallel, surprised to see no where in Ifpack2 it is mentioned how to activate it
+        precParams->set("trisolver: type", "HTS");
+    }
   }
+#ifdef BELOS_TEUCHOS_TIME_MONITOR
+  Teuchos::RCP<Teuchos::Time> precSetTime;
+  precSetTime = Teuchos::TimeMonitor::getNewCounter("Setting preconditioner time");
+#endif
+  {
+#ifdef BELOS_TEUCHOS_TIME_MONITOR
+      Teuchos::TimeMonitor updateTimer( *precSetTime);
+#endif
 
-  RCP<ParameterList> equibParams (new ParameterList ("Equilibration"));
-  equibParams->set ("Equilibrate", args.equilibrate);
-  equibParams->set ("Assume symmetric", args.assumeSymmetric);
-  equibParams->set ("Assume zero initial guess",
-                    args.assumeZeroInitialGuess);
-  equibParams->set ("Use diagonal to equilibrate",
-                    args.useDiagonalToEquilibrate);
+      RCP<ParameterList> equibParams (new ParameterList ("Equilibration"));
+      equibParams->set ("Equilibrate", args.equilibrate);
+      equibParams->set ("Assume symmetric", args.assumeSymmetric);
+      equibParams->set ("Assume zero initial guess",
+              args.assumeZeroInitialGuess);
+      equibParams->set ("Use diagonal to equilibrate",
+              args.useDiagonalToEquilibrate);
 
-  std::string precSide = args.precSide;
-  solver.setSolverTypeAndParameters ("TPETRA HYBRID BLOCK GMRES", solverParams);
-  solver.setPreconditionerTypeAndParameters (precType, precSide, precParams);
-  solver.setEquilibrationParameters (equibParams);
+      std::string precSide = args.precSide;
+      solver.setSolverTypeAndParameters ("TPETRA HYBRID BLOCK GMRES", solverParams);
+      solver.setPreconditionerTypeAndParameters (precType, precSide, precParams);
+      solver.setEquilibrationParameters (equibParams);
 
-  solver.initialize ();
-  solver.compute ();
+      solver.initialize ();
+      solver.compute ();
 
+  }
   // Keep this around for later computation of the explicit residual
   // norm.  If the solver equilibrates, it will modify the original B.
   MultiVectorType R (B, Teuchos::Copy);
@@ -2178,7 +2201,8 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
 
 #ifdef BELOS_TEUCHOS_TIME_MONITOR
   Teuchos::RCP<Teuchos::Time> solveTime;
-  solveTime = Teuchos::TimeMonitor::getNewCounter("Final solve time");
+  solveTime = Teuchos::TimeMonitor::getNewCounter("Pure solve time");
+
 #endif
   using scalar_type = typename CrsMatrixType::scalar_type;
   BelosSolverResult<scalar_type> result;
@@ -2398,44 +2422,43 @@ main (int argc, char* argv[])
   void* raceVoidHandle = NULL;
   int raceTunedPow = 1;
 
-  bool RACEswitchOff = false;
-  std::string RACE_precon_type = "NONE";
-
-  if(stringToUpper(args.preconditionerTypes) != "NONE")
+  if(args.useRACEreordering)
   {
-      if(stringToUpper(args.preconditionerTypes) == "RELAXATION")
+      bool RACEswitchOff = false;
+      std::string RACE_precon_type = "NONE";
+
+      if(stringToUpper(args.preconditionerTypes) != "NONE")
       {
-          if(stringToUpper(args.preconditionerSubType) == "JACOBI")
+          if(stringToUpper(args.preconditionerTypes) == "RELAXATION")
           {
-              RACE_precon_type = "JACOBI";
-          }
-          else if(stringToUpper(args.preconditionerSubType) == "GAUSS-SEIDEL")
-          {
-              RACE_precon_type = "GAUSS-SEIDEL";
-          }
-          else if(stringToUpper(args.preconditionerSubType) == "MT GAUSS-SEIDEL")
-          {
-              RACE_precon_type = "JACOBI-GAUSS-SEIDEL";
+              if(stringToUpper(args.preconditionerSubType) == "JACOBI")
+              {
+                  RACE_precon_type = "JACOBI";
+              }
+              else if(stringToUpper(args.preconditionerSubType) == "GAUSS-SEIDEL")
+              {
+                  RACE_precon_type = "GAUSS-SEIDEL";
+              }
+              else if(stringToUpper(args.preconditionerSubType) == "MT GAUSS-SEIDEL")
+              {
+                  RACE_precon_type = "JACOBI-GAUSS-SEIDEL";
+              }
+              else
+              {
+                  RACEswitchOff = true;
+              }
           }
           else
           {
               RACEswitchOff = true;
           }
       }
-      else
+      if(RACEswitchOff)
       {
-          RACEswitchOff = true;
+          printf("RACE does not support %s:%s preconditioner. Switching off RACE\n", args.preconditionerTypes.c_str(), args.preconditionerSubType.c_str());
+          args.useRACEreordering=false;
       }
-  }
-  if(RACEswitchOff)
-  {
-      printf("RACE does not support %s:%s preconditioner. Switching off RACE\n", args.preconditionerTypes.c_str(), args.preconditionerSubType.c_str());
-      args.useRACEreordering=false;
-  }
 
-
-  if(args.useRACEreordering)
-  {
       ParameterList RACE_params("RACE");
       //cache size in MB
       RACE_params.set("Cache size", atof(args.RACE_cacheSize.c_str()));
@@ -2443,20 +2466,41 @@ main (int argc, char* argv[])
       RACE_params.set("Highest power", highestPower);
       RACE_params.set("Preconditioner", RACE_precon_type);
       RACE_params.set("Preconditioner side", args.precSide);
-      race = Teuchos::RCP<RACE_type>(new RACE_type(origA, RACE_params));
-      A = race->getPermutedMatrix();
-      raceVoidHandle = (void*)(race.getRawPtr());
 
-      //get tuned power size for GmresSstep
-      RCP<MV> test;
-      RCP<MV> test_y;
-      test = Teuchos::rcp (new MV(A->getRangeMap(), 1));
-      test_y = Teuchos::rcp (new MV(A->getRangeMap(), 1));
-      std::vector<std::complex<double>> theta(highestPower, -1);
-      raceTunedPow = race->apply_GmresPolyPrecon(highestPower, *test, *test_y, theta, -1);
-      //raceTunedPow = race->apply_GmresSstep(highestPower, *test, theta, -1);
-      //raceTunedPow = race->apply(highestPower, *test, 1, 0, -1);
-      printf("tuned pow = %d\n", raceTunedPow);
+#ifdef BELOS_TEUCHOS_TIME_MONITOR
+      Teuchos::RCP<Teuchos::Time> RACEPreTime;
+      RACEPreTime = Teuchos::TimeMonitor::getNewCounter("Total RACE pre-procesing time");
+#endif
+      {
+#ifdef BELOS_TEUCHOS_TIME_MONITOR
+          Teuchos::TimeMonitor updateTimer( *RACEPreTime);
+#endif
+
+
+          race = Teuchos::RCP<RACE_type>(new RACE_type(origA, RACE_params));
+          A = race->getPermutedMatrix();
+          raceVoidHandle = (void*)(race.getRawPtr());
+      }
+
+#ifdef BELOS_TEUCHOS_TIME_MONITOR
+      Teuchos::RCP<Teuchos::Time> RACETuningTime;
+      RACETuningTime = Teuchos::TimeMonitor::getNewCounter("Total RACE tuning time");
+#endif
+      {
+#ifdef BELOS_TEUCHOS_TIME_MONITOR
+          Teuchos::TimeMonitor updateTimer( *RACETuningTime);
+#endif
+          //get tuned power size for GmresSstep
+          RCP<MV> test;
+          RCP<MV> test_y;
+          test = Teuchos::rcp (new MV(A->getRangeMap(), 1));
+          test_y = Teuchos::rcp (new MV(A->getRangeMap(), 1));
+          std::vector<std::complex<double>> theta(highestPower, -1);
+          raceTunedPow = race->apply_GmresPolyPrecon(highestPower, *test, *test_y, theta, -1);
+          //raceTunedPow = race->apply_GmresSstep(highestPower, *test, theta, -1);
+          //raceTunedPow = race->apply(highestPower, *test, 1, 0, -1);
+          printf("tuned pow = %d\n", raceTunedPow);
+      }
   }
   else
   {
@@ -2804,13 +2848,14 @@ main (int argc, char* argv[])
                       raceVoidHandle, raceTunedPow);
               gettimeofday(&end, NULL);
               end_time = end.tv_sec + end.tv_usec*1e-6;
-              printf("solve time (in sec): %9.5f\n", end_time-start_time);
+              //printf("solve time (in sec): %9.5f\n", end_time-start_time);
+              Teuchos::TimeMonitor::summarize();
+              Teuchos::TimeMonitor::zeroOutTimers();
           }
         }
       }
     }
   }
 
-  Teuchos::TimeMonitor::summarize();
   return EXIT_SUCCESS;
 }
