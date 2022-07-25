@@ -306,7 +306,9 @@ namespace RACE {
             {
 
                 //for prod we have to create temporary work space to hold tunedPow columns
-                //iterations
+                //iterations,
+                //after fix in redundant computations now we can also do it with
+                //2 temporaries
                 int allocCol = tunedPow;
                 bool tunePhase = false;
 
