@@ -454,6 +454,8 @@ void Relaxation<MatrixType>::setParametersImpl (Teuchos::ParameterList& pl)
   InnerSpTrsv_           = innerSpTrsv;
   InnerDampingFactor_    = innerDampingFactor;
   CompactForm_           = compactForm;
+
+
 }
 
 
@@ -1462,7 +1464,6 @@ ApplyInverseJacobi (const Tpetra::MultiVector<scalar_type,local_ordinal_type,glo
     ApplyInverseJacobi_BlockCrsMatrix (X, Y);
     return;
   }
-
   const double numGlobalRows = as<double> (A_->getGlobalNumRows ());
   const double numVectors = as<double> (X.getNumVectors ());
   if (ZeroStartingSolution_) {
@@ -2132,7 +2133,9 @@ ApplyInverseMTGS_CrsMatrix(
 
   bool update_y_vector = true;
   //false as it was done up already, and we dont want to zero it in each sweep.
-  bool zero_x_vector = false;
+  //CA: if we set it false here, there would be an extra SpMV if x is zero
+  //bool zero_x_vector = false;
+  bool zero_x_vector = ZeroStartingSolution_;
 
   for (int sweep = 0; sweep < NumSweeps_; ++sweep) {
     if (! importer.is_null () && sweep > 0) {
@@ -2172,6 +2175,9 @@ ApplyInverseMTGS_CrsMatrix(
           "values: Forward, Backward, or Symmetric.");
     }
     update_y_vector = false;
+
+    //now set to false as we dont want to zero it in each sweep.
+    zero_x_vector = false;
   }
 
   if (copyBackOutput) {
