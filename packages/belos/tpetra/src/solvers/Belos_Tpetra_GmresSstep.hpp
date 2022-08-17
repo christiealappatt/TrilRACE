@@ -742,6 +742,12 @@ private:
           blas.COPY (1+iter, h.values(), 1, y.values(), 1);
         }
       }
+
+      if(0) //(outputCtr % 10) == 0) //print after each restart
+      {
+          std::cout << "Iter:" << output.numIters << endl;
+          std::cout << output;
+      }
     }
 
     // Return residual norm as B

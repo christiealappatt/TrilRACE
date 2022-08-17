@@ -403,6 +403,16 @@ namespace Belos {
       if (B_numRows == size_t (1) && B_numCols == size_t (1)) {
         mv.update (alpha*B(0,0), A, beta);
       }
+      else if(B_numRows == size_t (1)) { //added by CA
+          //do a looped update because the dgemm is serial (atleast MKL)
+          for(size_t c=0; c<B_numCols; ++c)
+          {
+              //Teuchos::Range1D index(c, c);
+              Teuchos::RCP<MV> mv_subview  = mv.getVectorNonConst(c);
+              //subViewNonConst (index);
+              mv_subview->update(alpha*B(0, c), A, beta);
+          }
+      }
       else {
         MV B_mv = makeStaticLocalMultiVector (A, B_numRows, B_numCols);
         Tpetra::deep_copy (B_mv, B);

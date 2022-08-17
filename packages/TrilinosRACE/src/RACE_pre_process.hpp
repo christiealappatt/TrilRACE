@@ -127,6 +127,8 @@ namespace RACE {
             /*RACE params*/
             double cacheSize;
             int highestPower;
+            int innerIter;
+            double innerDamping;
             int* perm;
             int* invPerm;
 
@@ -143,6 +145,7 @@ namespace RACE {
             //Currently available: NONE (default), JACOBI, GAUSS-SEIDEL,
             //JACOBI-GAUSS-SEIDEL
             std::string precon_type;
+            std::string precon_side;
             //set true if starting vector for preconditioner is zero
             bool precon_start_w_zero;
             //currently only one iter of preconditioning is allowed
@@ -189,6 +192,23 @@ namespace RACE {
                 }
                 return ce;
             }
+            std::string getPreconType()
+            {
+                return precon_type;
+            }
+            std::string getPreconSide()
+            {
+                return precon_side;
+            }
+            int getInnerPower()
+            {
+                return preconPowerFactor;
+            }
+
+            double getInnerDamping()
+            {
+                return innerDamping;
+            }
 
             //constructor
             preProcess(Teuchos::RCP<CrsMatrixType> origA_, Teuchos::ParameterList& paramList): perm(NULL), invPerm(NULL), /*diag(NULL),*/ origA(origA_), permA(Teuchos::null), ce(NULL)
@@ -219,34 +239,61 @@ namespace RACE {
                 precon_type = paramList.get("Preconditioner", precon_type);
                 std::transform(precon_type.begin(), precon_type.end(), precon_type.begin(), ::toupper);
 
+                precon_side = "NONE";
+                precon_side = paramList.get("Preconditioner side", precon_side);
+                std::transform(precon_side.begin(), precon_side.end(), precon_side.begin(), ::toupper);
+
+
+                //Two-stage GS inner iteration count
+                innerIter = 1;
+                innerIter = paramList.get("Inner iteration", innerIter);
+
                 precon_start_w_zero = true;
                 //TODO: when support in kernels are available
-              //  precon_start_w_zero = paramList.get("Preconditioner start with zero vector", precon_start_w_zero);
+                //precon_start_w_zero = paramList.get("Preconditioner start with zero vector", precon_start_w_zero);
 
-                preconPowerFactor = 1;
+                innerDamping = 1;
+                innerDamping = paramList.get("Inner damping", innerDamping);
+
+                                preconPowerFactor = 1;
+                //JACOBI-GAUSS-SEIDEL should be dropped as it somehow doesnt work, probably because of damping. Users are advised to use TWO-STAGE-GAUSS-SEIDEL instead
                 if(precon_type == "GAUSS-SEIDEL" || precon_type == "JACOBI-GAUSS-SEIDEL")
                 {
                     preconPowerFactor = 2;
-                    //no recursion if power>1, since the order
-                    //of preconditioner application in different power
-                    //changes and not suitable for GMRES like solvers, would
-                    //need F-GMRES
-                    //
-                    //no recursion at all (even for power=1) if pure GAUSS-SEIDEL (RIGHT), even in case of
-                    //power=1, because for some reason there is a problem (not
-                    //figured out yet, why at power=1)
 
-                    if((highestPower > 1) || (precon_type == "GAUSS-SEIDEL"))
+                    /*if((highestPower > 1) || ( (precon_type == "GAUSS-SEIDEL") ))//|| (precon_type == "TWO-STEP-GAUSS-SEIDEL") )
                     {
-                        std::string maxInt = std::to_string(std::numeric_limits<int>::max());
-                        setenv("RACE_CACHE_VIOLATION_CUTOFF", maxInt.c_str(), 1); //last argument ensure overwrites
-                    }
-
+                        //no recursion if power>1, since the order
+                        //of preconditioner application in different power
+                        //changes and not suitable for GMRES like solvers, would
+                        //need F-GMRES ==> this is not true and it works now
+                        //
+                        //no recursion at all (even for power=1) if pure GAUSS-SEIDEL (RIGHT), even in case of
+                        //power=1, because for some reason there is a problem (not
+                        //figured out yet, why at power=1)
+                        //I think its the ordering which is the problem, the L and
+                        //U part
+                        //This should be fixed now, error was in boundary
+                        //computations macros
+                        //std::string maxInt = std::to_string(std::numeric_limits<int>::max());
+                        //setenv("RACE_CACHE_VIOLATION_CUTOFF", maxInt.c_str(), 1); //last argument ensure overwrites
+                    }*/
                 }
-                else if((precon_type == "JACOBI") && (precon_start_w_zero == false))
-                {
+                /*else if((precon_type == "JACOBI-RICHARDSON") && (precon_start_w_zero == false))
+                  {
                     preconPowerFactor = 2;
+                }*/
+                else if(precon_type == "TWO-STEP-GAUSS-SEIDEL")
+                {
+                    /*
+                    preconPowerFactor = innerIter+1;
+                    if(precon_start_w_zero == false)
+                    {
+                        preconPowerFactor += 1; //need to find residual too
+                    }*/
+                    preconPowerFactor = innerIter+2;
                 }
+
 
                 Teuchos::ArrayRCP<const size_t> rowPointers;
                 Teuchos::ArrayRCP<const LocalOrdinal> columnIndices;
@@ -274,7 +321,7 @@ namespace RACE {
                     nthreads = omp_get_num_threads();
                 }
 
-                //not ideal to cast const-ness but the RACE_PERMUTE_ON_FLY chek
+                //not ideal to cast const-ness but the RACE_PERMUTE_ON_FLY check
                 //should ensure const-ness is not lost
 #ifndef RACE_PERMUTE_ON_FLY
                 ERROR_PRINT("Constantness of the matrix will be lost, so please switch on RACE_PERMUTE_ON_FLY, when compiling RACE. Expect errors");
@@ -379,10 +426,6 @@ namespace RACE {
 
                 newRowPtr[0] = 0;
 
-#ifdef HAVE_TrilinosRACE_DEBUG
-                printf("Going to NUMA init rowPtr\n");
-#endif
-
                 if(!RACEalloc)
                 {
                     //NUMA init
@@ -394,6 +437,9 @@ namespace RACE {
                 }
                 else
                 {
+#ifdef HAVE_TrilinosRACE_DEBUG
+                printf("Going to NUMA init rowPtr\n");
+#endif
                     numaInitRowPtr(newRowPtr);
                 }
 
@@ -456,7 +502,7 @@ namespace RACE {
                         int _perm_Row = _perm_[row];
                         size_t _perm_Idx; //newRowPtr is size_t
                         int idx;
-                        int ctr;
+                        int ctr=0;
 
                         int rowLen = newRowPtr[row+1]-newRowPtr[row];
                         std::vector<LocalOrdinal> tmpCol(rowLen);

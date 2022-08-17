@@ -557,7 +557,7 @@ namespace Belos {
 
   // Set static variables.
   template<class ScalarType, class MV, class OP>
-  const int ICGSOrthoManager<ScalarType,MV,OP>::max_ortho_steps_default_ = 2;
+  const int ICGSOrthoManager<ScalarType,MV,OP>::max_ortho_steps_default_ = 1;
 
   template<class ScalarType, class MV, class OP>
   const typename ICGSOrthoManager<ScalarType,MV,OP>::MagnitudeType

@@ -10,7 +10,8 @@ namespace RACE
 {
 
     //TODO: template on CRS and MV types, so CRS and MV can have different types
-template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
+//template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
+    template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
         class frontend
         {
             using packtype = RACE_packtype<Scalar, LocalOrdinal, GlobalOrdinal, Node>;
@@ -27,8 +28,8 @@ template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
             //constructor
             frontend(Teuchos::RCP<CrsMatrixType> origA_, Teuchos::ParameterList& paramList, Teuchos::RCP<CrsMatrixType> M=Teuchos::null): pre(origA_, paramList)
             {
-                Teuchos::RCP<CrsMatrixType> permA = pre.getPermutedMatrix();
-                exec.init(pre.get_RACE_engine(), permA, paramList);
+                //Teuchos::RCP<CrsMatrixType> permA = pre.getPermutedMatrix();
+                exec.init(&pre);
             }
 
             Teuchos::RCP<CrsMatrixType> getPermutedMatrix()
@@ -100,7 +101,7 @@ template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
                 Teuchos::TimeMonitor LocalTimer (*timer);
 
                 std::string precType = exec.getPrecType();
-                if( (precType=="NONE" || precType=="JACOBI") || (precType=="GAUSS-SEIDEL" || precType=="JACOBI-GAUSS-SEIDEL") )
+                if( (precType=="NONE" || precType=="JACOBI") || (precType=="GAUSS-SEIDEL" || precType=="JACOBI-GAUSS-SEIDEL") || (precType=="TWO-STEP-GAUSS-SEIDEL") )
                 {
                     return exec.PreconKernel(power, b, x);
                 }
@@ -118,7 +119,7 @@ template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
                 Teuchos::TimeMonitor LocalTimer (*timer);
 
                 std::string precType = exec.getPrecType();
-                if( (precType=="NONE" || precType=="JACOBI") || (precType=="GAUSS-SEIDEL" || precType=="JACOBI-GAUSS-SEIDEL") )
+                if( (precType=="NONE" || precType=="JACOBI") || (precType=="GAUSS-SEIDEL" || precType=="JACOBI-GAUSS-SEIDEL") || (precType=="TWO-STEP-GAUSS-SEIDEL") )
                 {
                     return exec.MPK_GmresSstepKernel(power, iter, x, theta, tunedPow);
                 }
@@ -139,7 +140,7 @@ template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
 
                 //step size and use it
                 std::string precType = exec.getPrecType();
-                if( (precType=="NONE" || precType=="JACOBI") || (precType=="GAUSS-SEIDEL" || precType=="JACOBI-GAUSS-SEIDEL") )
+                if( (precType=="NONE" || precType=="JACOBI") || (precType=="GAUSS-SEIDEL" || precType=="JACOBI-GAUSS-SEIDEL") || (precType=="TWO-STEP-GAUSS-SEIDEL") )
                 {
                     return exec.MPK_GmresPolyPreconKernel(power, prod, y, theta, tunedPow);
                 }
@@ -150,7 +151,46 @@ template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
                 }
             }
 
+            int apply_Smoother(int sweeps, vec_type &x, vec_type &b, bool zeroGuess=false)
+            {
+                // timer
+                Teuchos::RCP< Teuchos::Time > timer  = Teuchos::TimeMonitor::getNewCounter ("RACE::MGSmoother kernel");
+                Teuchos::TimeMonitor LocalTimer (*timer);
 
+
+                //step size and use it
+                std::string precType = exec.getPrecType();
+                if( precType=="TWO-STEP-GAUSS-SEIDEL")
+                {
+                    return exec.MPK_MGSmootherKernel(x, b, zeroGuess);
+                }
+                else
+                {
+                    ERROR_PRINT("MG Smoother with %s preconditioner not implemented yet in RACE", precType.c_str());
+                    return -2;
+                }
+            }
+
+            //fused with Residual computation
+            int apply_Smoother(int sweeps, vec_type &x, vec_type &b, vec_type &res, bool zeroGuess=false)
+            {
+                // timer
+                Teuchos::RCP< Teuchos::Time > timer  = Teuchos::TimeMonitor::getNewCounter ("RACE::MGSmoother+residual kernel");
+                Teuchos::TimeMonitor LocalTimer (*timer);
+
+
+                //step size and use it
+                std::string precType = exec.getPrecType();
+                if( precType=="TWO-STEP-GAUSS-SEIDEL")
+                {
+                    return exec.MPK_MGSmootherKernel(x, b, res, zeroGuess);
+                }
+                else
+                {
+                    ERROR_PRINT("MG Smoother with %s preconditioner not implemented yet in RACE", precType.c_str());
+                    return -2;
+                }
+            }
 
         };//class frontend
 }//namespace RACE

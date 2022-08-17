@@ -8,6 +8,7 @@
 #include "RACE_Precon.hpp"
 #include "RACE_GmresSstepKernel.hpp"
 #include "RACE_GmresPolyPreconKernel.hpp"
+#include "RACE_MGSmootherKernel.hpp"
 #include <string.h>
 #include <vector>
 
@@ -26,9 +27,12 @@ namespace RACE {
             using vec_type = typename packtype::mvec_type;
 
             CRS_raw_type* A; //matrix
+            CRS_raw_type* L; //matrix
+            CRS_raw_type* U; //matrix
             std::string precType;
             std::string precSide;
             int subPow;
+            double gamma;
             //currently M has to have same (sub-)sparsity that of A
             //TODO: support preconditioners having different sparsity
             //as that of A.
@@ -41,51 +45,58 @@ namespace RACE {
             vec_type* workspacePolyPrecon;
             vec_type* workspacePolyPrecon2;
             vec_type* workspaceGmresSstep;
+            vec_type* workspacePrecon;
 
             public:
-            kernels(RACE::Interface *_ce_, Teuchos::RCP<CrsMatrixType> _A_, Teuchos::ParameterList& paramList, Teuchos::RCP<CrsMatrixType> _M_=Teuchos::null): A(NULL), M(NULL), ce(NULL), workspacePolyPrecon(NULL), workspacePolyPrecon2(NULL), workspaceGmresSstep(NULL), subPow(1)
+            kernels(preProcess<packtype>* _preProcess_, Teuchos::RCP<CrsMatrixType> _M_=Teuchos::null): A(NULL), L(NULL), U(NULL), M(NULL), ce(NULL), workspacePolyPrecon(NULL), workspacePolyPrecon2(NULL), workspaceGmresSstep(NULL), workspacePrecon(NULL), subPow(1)
             {
 
-                init(_ce_, _A_, paramList, _M_);
+                init(_preProcess_, _M_);
             }
-            kernels(): A(NULL), M(NULL), ce(NULL), workspacePolyPrecon(NULL), workspacePolyPrecon2(NULL), workspaceGmresSstep(NULL), precType("NONE"), precSide("NONE"), subPow(1)
+            kernels(): A(NULL), L(NULL), U(NULL), M(NULL), ce(NULL), workspacePolyPrecon(NULL), workspacePolyPrecon2(NULL), workspaceGmresSstep(NULL), workspacePrecon(NULL), precType("NONE"), precSide("NONE"), subPow(1)
             {
             }
 
-            void init(RACE::Interface *_ce_, Teuchos::RCP<CrsMatrixType> _A_, Teuchos::ParameterList& paramList, Teuchos::RCP<CrsMatrixType> _M_=Teuchos::null)
+            void init(preProcess<packtype>* preProcess, Teuchos::RCP<CrsMatrixType> _M_=Teuchos::null)
             {
-                ce = _ce_;
+                ce = preProcess->get_RACE_engine();
                 if(ce == NULL)
                 {
                     ERROR_PRINT("RACE engine not found");
                 }
-                if(_A_ == Teuchos::null)
+                Teuchos::RCP<CrsMatrixType> permA = preProcess->getPermutedMatrix();
+                if(permA == Teuchos::null)
                 {
                     ERROR_PRINT("Matrix not passed to RACE kernels");
                 }
-                A=new CRS_raw_type(_A_);
+                A=new CRS_raw_type(permA);
+                std::string precon_type = preProcess->getPreconType();
 
-                std::string precon_type = "NONE";
-                precon_type = paramList.get("Preconditioner", precon_type);
-                std::transform(precon_type.begin(), precon_type.end(), precon_type.begin(), ::toupper);
+                if(precon_type == "TWO-STEP-GAUSS-SEIDEL")
+                {
+                    A->splitMatrixToLU(&L, &U, true);
+                }
 
                 std::string precon_side = "NONE";
-                precon_side = paramList.get("Preconditioner side", precon_side);
-                std::transform(precon_side.begin(), precon_side.end(), precon_side.begin(), ::toupper);
+                precon_side = preProcess->getPreconSide();
+                //std::transform(precon_side.begin(), precon_side.end(), precon_side.begin(), ::toupper);
 
                 precType = precon_type;
                 precSide = precon_side;
+
                 if((precType != "NONE") && (_M_ != Teuchos::null))
                 {
                     M=new CRS_raw_type(_M_);
                 }
 
-                subPow = 1;
+                subPow = preProcess->getInnerPower();
                 //determin subPow
-                if((precType != "NONE") && (precType != "JACOBI"))
+                /*if((precType != "NONE") && (precType != "JACOBI"))
                 {
                     subPow = 2;
-                }
+                }*/
+
+                gamma = preProcess->getInnerDamping();
             }
             ~kernels()
             {
@@ -96,6 +107,14 @@ namespace RACE {
                 if(M)
                 {
                     delete M;
+                }
+                if(L)
+                {
+                    delete L;
+                }
+                if(U)
+                {
+                    delete U;
                 }
                 if(workspacePolyPrecon)
                 {
@@ -108,6 +127,10 @@ namespace RACE {
                 if(workspaceGmresSstep)
                 {
                     delete workspaceGmresSstep;
+                }
+                if(workspacePrecon)
+                {
+                    delete workspacePrecon;
                 }
             }
             std::string getPrecType()
@@ -199,16 +222,32 @@ namespace RACE {
             {
                 int tunedPow = 1; //no tuning for this kernel as it is normally called for power=1
                 int forceSubPower = 1;//enforce subpower to 1
+
+                int innerIter = subPow-1;
                 if(power > 0)
                 {
-                    if((precType == "GAUSS-SEIDEL")||(precType == "JACOBI-GAUSS-SEIDEL"))
-                    {
+                    if( ((precType == "GAUSS-SEIDEL")||(precType == "JACOBI-GAUSS-SEIDEL")) || (precType == "TWO-STEP-GAUSS-SEIDEL"))        {
                         x.putScalar(0); //set to zero initial vector
+
+                        if(precType == "TWO-STEP-GAUSS-SEIDEL")
+                        {
+                            forceSubPower = innerIter;
+                            allocateVecWorkspace(workspacePrecon, x.getMap(), innerIter, true);
+                        }
                     }
                     array_type x_arr = x.get2dViewNonConst();
                     const_array_type b_arr = b.get2dView();
 
-                    TrilinosRACE_MPK_KERNEL_BODY(Precon, , A, &b_arr, &x_arr, 0, precType);
+                    bool initVecIsZero = true;
+                    if(precType == "TWO-STEP-GAUSS-SEIDEL")
+                    {
+                        array_type preconTmp = workspacePrecon->get2dViewNonConst();
+                        TrilinosRACE_MPK_KERNEL_BODY(Precon, , A, L, U, &b_arr, &x_arr, initVecIsZero, gamma, 0, innerIter, precType, &preconTmp);
+                    }
+                    else
+                    {
+                        TrilinosRACE_MPK_KERNEL_BODY(Precon, , A, L, U, &b_arr, &x_arr, initVecIsZero, gamma, 0, innerIter, precType, NULL);
+                    }
                 }
                 return tunedPow;
             }
@@ -259,14 +298,22 @@ namespace RACE {
 
                 bool needAllocation = false;
                 int forceSubPower = 0;//use already set subPower
+                int innerIter = subPow;
                 //for preconditioner we have to create temporary work space to hold tunedPow columns
                 //iterations
-                if((precType != "NONE") && (precType != "JACOBI"))
+                if((precType != "NONE") && (precType != "JACOBI")   )
                 {
-                    //can limit x column to allocCol but that would mean to
-                    //reset it to zero in between, else initial guess for
-                    //preconditioner will not be zero
-                    allocateVecWorkspace(workspaceGmresSstep, x.getMap(), power+1, true);
+                    if(precType == "TWO-STEP-GAUSS-SEIDEL")
+                    {
+                        allocateVecWorkspace(workspaceGmresSstep, x.getMap(), innerIter, true);
+                    }
+                    else
+                    {
+                        //can limit x column to allocCol but that would mean to
+                        //reset it to zero in between, else initial guess for
+                        //preconditioner will not be zero
+                        allocateVecWorkspace(workspaceGmresSstep, x.getMap(), power+1, true);
+                    }
                     needAllocation = true;
                 }
                 if(power > 0)
@@ -286,14 +333,15 @@ namespace RACE {
                     //theta[0] = complex_type(theta[0].real(), 0);
 
 
+                    bool initVecIsZero = true;
                     if(needAllocation)
                     {
                         array_type preconTmp = workspaceGmresSstep->get2dViewNonConst();
-                        TrilinosRACE_MPK_KERNEL_BODY(GmresSstepKernel, , A, &x_arr, theta, 0, iter, precType, precSide, &preconTmp);
+                        TrilinosRACE_MPK_KERNEL_BODY(GmresSstepKernel, , A, L, U, &x_arr, initVecIsZero, theta, gamma, 0, iter, innerIter, precType, precSide, &preconTmp);
                     }
                     else
                     {
-                        TrilinosRACE_MPK_KERNEL_BODY(GmresSstepKernel, , A, &x_arr, theta, 0, iter, precType, precSide, NULL);
+                        TrilinosRACE_MPK_KERNEL_BODY(GmresSstepKernel, , A, L, U, &x_arr, initVecIsZero, theta, gamma, 0, iter, innerIter, precType, precSide, NULL);
                     }
 
                 }
@@ -309,6 +357,7 @@ namespace RACE {
                 //iterations
                 int allocCol = tunedPow;
                 bool tunePhase = false;
+                int innerIter = subPow;
 
                 if(allocCol <= 0)
                 {
@@ -333,14 +382,19 @@ namespace RACE {
                 //iterations
                 if((precType != "NONE") && (precType != "JACOBI"))
                 {
-                    //can limit x column to allocCol but that would mean to
-                    //reset it to zero in between, else initial guess for
-                    //preconditioner will not be zero
-                    allocateVecWorkspace(workspacePolyPrecon2, prod.getMap(), allocCol+1, true);
+                    if(precType == "TWO-STEP-GAUSS-SEIDEL")
+                    {
+                        allocateVecWorkspace(workspacePolyPrecon2, prod.getMap(), innerIter, true);
+                    }
+                    else
+                    {
+                        allocateVecWorkspace(workspacePolyPrecon2, prod.getMap(), allocCol+1, true);
+                    }
                     needAllocation = true;
                 }
 
                 int forceSubPower = 0;//use already set subPower
+                bool initVecIsZero = true;
                 if(power > 0)
                 {
 
@@ -349,11 +403,12 @@ namespace RACE {
                     if(needAllocation)
                     {
                         array_type preconTmp = workspacePolyPrecon2->get2dViewNonConst();
-                        TrilinosRACE_MPK_KERNEL_BODY(GmresPolyPreconKernel, workspacePolyPrecon2->putScalar(0);, A, &x_arr, &y_arr, theta, 0, power, allocCol, precType, precSide, &preconTmp);
+
+                        TrilinosRACE_MPK_KERNEL_BODY(GmresPolyPreconKernel, workspacePolyPrecon2->putScalar(0);, A, L, U, &x_arr, &y_arr, initVecIsZero, theta, gamma, 0, power, allocCol, innerIter, precType, precSide, &preconTmp);
                     }
                     else
                     {
-                        TrilinosRACE_MPK_KERNEL_BODY(GmresPolyPreconKernel, , A, &x_arr, &y_arr, theta, 0, power, allocCol, precType, precSide, NULL);
+                        TrilinosRACE_MPK_KERNEL_BODY(GmresPolyPreconKernel, , A, L, U, &x_arr, &y_arr, initVecIsZero, theta, gamma, 0, power, allocCol, innerIter, precType, precSide, NULL);
                     }
                 }
 
@@ -367,6 +422,120 @@ namespace RACE {
                     prod_subview = workspacePolyPrecon->getVectorNonConst(final_col_index);
                     //y= y+(1/theta_r)*prod
                     y.update(1.0/(theta[power].real()), *prod_subview, 1);
+                }
+
+                return tunedPow;
+            }
+
+            //MPK_MGSmoother performs 'n' sweeps of the MG smoother
+            int MPK_MGSmootherKernel(int power, vec_type &x, vec_type &b, bool zeroGuess)
+            {
+
+                //for prod we have to create temporary work space to hold tunedPow columns
+                //iterations
+                int allocCol = tunedPow;
+                bool tunePhase = false;
+                int innerIter = subPow;
+
+                if(tunedPow <= 0)
+                {
+                    tunePhase = true;
+                }
+
+                bool needAllocation = false;
+                if(precType == "TWO-STEP-GAUSS-SEIDEL")
+                {
+                    allocateVecWorkspace(workspacePolyPrecon, prod.getMap(), innerIter, true);
+                    //set first vector to xInit value
+                    //Teuchos::Range1D index(0, 0);
+                    //Teuchos::RCP<vec_type> prod_subview =  workspacePolyPrecon->subViewNonConst (index);
+                    Teuchos::RCP<vec_type> prod_subview = workspacePolyPrecon->getVectorNonConst(0);
+                    Tpetra::deep_copy(*prod_subview, x);
+
+
+                    needAllocation = true;
+                }
+                else
+                {
+                    printf("Error: only Two-stage Gauss-Seidel implemented currently for MG smoother\n");
+                }
+
+                int forceSubPower = 0;//use already set subPower
+                bool initVecIsZero = zeroGuess;
+                if(power > 0)
+                {
+
+                    array_type x_arr = x.get2dViewNonConst();
+                    array_type b_arr = b.get2dViewConst();
+                    if(needAllocation)
+                    {
+                        array_type preconTmp = workspacePolyPrecon->get2dViewNonConst();
+
+                        TrilinosRACE_MPK_KERNEL_BODY(MGSmootherKernel, ;, A, L, U, &x_arr, &b_arr, NULL, initVecIsZero, gamma, 0, power, allocCol, innerIter, precType, &preconTmp);
+                    }
+                    else
+                    {
+
+                        printf("Error: only Two-stage Gauss-Seidel implemented currently for smoother\n");
+                        //TrilinosRACE_MPK_KERNEL_BODY(GmresPolyPreconKernel, , A, L, U, &x_arr, &y_arr, initVecIsZero, theta, gamma, 0, power, allocCol, innerIter, precType, NULL);
+                    }
+                }
+
+                return tunedPow;
+            }
+
+            //MPK_MGSmoother performs 'n' sweeps of the MG smoother
+            int MPK_MGSmootherKernel(int power, vec_type &x, vec_type &b, vec_type &r, bool zeroGuess)
+            {
+
+                //for prod we have to create temporary work space to hold tunedPow columns
+                //iterations
+                int allocCol = tunedPow;
+                bool tunePhase = false;
+                int innerIter = subPow;
+
+                if(tunedPow <= 0)
+                {
+                    tunePhase = true;
+                }
+
+                bool needAllocation = false;
+                if(precType == "TWO-STEP-GAUSS-SEIDEL")
+                {
+                    allocateVecWorkspace(workspacePolyPrecon, prod.getMap(), innerIter, true);
+                    //set first vector to xInit value
+                    //Teuchos::Range1D index(0, 0);
+                    //Teuchos::RCP<vec_type> prod_subview =  workspacePolyPrecon->subViewNonConst (index);
+                    Teuchos::RCP<vec_type> prod_subview = workspacePolyPrecon->getVectorNonConst(0);
+                    Tpetra::deep_copy(*prod_subview, x);
+
+                    needAllocation = true;
+                }
+                else
+                {
+                    printf("Error: only Two-stage Gauss-Seidel implemented currently for MG smoother\n");
+                }
+
+                int forceSubPower = 0;//use already set subPower
+                bool initVecIsZero = zeroGuess;
+                if(power > 0)
+                {
+
+                    array_type x_arr = x.get2dViewNonConst();
+                    const_array_type b_arr = b.get2dViewConst();
+                    array_type r_arr = r.get2dViewConst();
+                    if(needAllocation)
+                    {
+                        array_type preconTmp = workspacePolyPrecon->get2dViewNonConst();
+
+                        TrilinosRACE_MPK_KERNEL_BODY(MGSmootherKernel, ;, A, L, U, &x_arr, &b_arr, &r_arr, initVecIsZero, gamma, 0, power, allocCol, innerIter, precType, &preconTmp);
+                    }
+                    else
+                    {
+
+                        printf("Error: only Two-stage Gauss-Seidel implemented currently for smoother\n");
+                        //TrilinosRACE_MPK_KERNEL_BODY(GmresPolyPreconKernel, , A, L, U, &x_arr, &y_arr, initVecIsZero, theta, gamma, 0, power, allocCol, innerIter, precType, NULL);
+                    }
                 }
 
                 return tunedPow;

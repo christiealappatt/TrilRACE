@@ -3,6 +3,8 @@
 
 #include "RACE_CRS_raw.hpp"
 #include <RACE/interface.h>
+#include "TrilinosRACE_config.h"
+
 
 //naming convention is very important for macro generation of code
 //i.e., oif using SpMV then use SpMV (and not SPMV) all over as seen in this template
@@ -17,12 +19,15 @@ namespace RACE {
         using Scalar = typename packtype::SC;
 
         CRS_raw_type* A;
+        CRS_raw_type* L;
+        CRS_raw_type* U;
         array_type* x;
         Scalar alpha;
         Scalar beta;
 
         int arr_offset;
         int tunedPower;
+        int totSubPower;
 
    };
 
