@@ -21,10 +21,11 @@ namespace RACE {
         array_type* preconTmp;
         const_array_type* b;
         std::string preconType;
+        bool fwdDir;
     };
 
     //convenience macros
-#define RACE_ENCODE_TO_VOID_Precon(A_en, L_en, U_en, b_en, x_en, initVecIsZero_en, innerDamping_en, arr_offset_en, totSubPower_en, preconType_en, preconTmp_en)\
+#define RACE_ENCODE_TO_VOID_Precon(A_en, L_en, U_en, b_en, x_en, initVecIsZero_en, innerDamping_en, arr_offset_en, totSubPower_en, preconType_en, fwdDir_en, preconTmp_en)\
     using arg_type = kernelArgPrecon<packtype>;\
     arg_type *arg_encode = new arg_type;\
     arg_encode->A = A_en;\
@@ -35,6 +36,7 @@ namespace RACE {
     arg_encode->arr_offset = arr_offset_en;\
     arg_encode->totSubPower = totSubPower_en;\
     arg_encode->preconType = preconType_en;\
+    arg_encode->fwdDir = fwdDir_en;\
     arg_encode->preconTmp = preconTmp_en;\
     arg_encode->innerDamping = innerDamping_en;\
     arg_encode->initVecIsZero = initVecIsZero_en;\
@@ -68,6 +70,7 @@ namespace RACE {
     int totSubPower = arg_decode->totSubPower;\
     array_type* preconTmp = arg_decode->preconTmp;\
     std::string preconType = arg_decode->preconType;\
+    bool fwdDir = arg_decode->fwdDir;\
     double innerDamping = arg_decode->innerDamping;\
     bool initVecIsZero = arg_decode->initVecIsZero;\
 
@@ -94,7 +97,6 @@ namespace RACE {
         int col_idx = _A_->col[idx];\
         tmp += (_A_->val[idx])*(_A_->invDiag[col_idx])*((_x_in_vec_)[col_idx]);\
     }\
-
 
 //For Jacobi the preconditioner and SpMV are fused together
 //therefore we have to distinguish right and left precon here
@@ -190,12 +192,27 @@ namespace RACE {
         (*mpkOutArray)[mpk_next_offset][row] = _scale_*((*mpkOutArray)[mpk_next_offset][row]+tmp)  __VA_ARGS__;\
     }\
 
+#define BASE_PRECON_MPK(_scale_, ...)\
+    for(LocalOrdinal row=start; row<end; ++row)\
+    {\
+        BASE_SpMV_KERNEL_IN_ROW(A, (*mpkInArray)[mpk_cur_offset]);\
+        (*mpkOutArray)[mpk_next_offset][row] = _scale_*tmp + __VA_ARGS__;\
+    }\
+
+
 
     //the _VA_ARGS_ are added for the update kernel
 #define BASE_Precon_PRECON(_precon_, ...)\
     if(preconType == "TWO-STEP-GAUSS-SEIDEL")\
     {\
-        BASE_Precon_TWO_STEP_GAUSS_SEIDEL_FWD(__VA_ARGS__);\
+        if(fwdDir == true)\
+        {\
+            BASE_Precon_TWO_STEP_GAUSS_SEIDEL_FWD(__VA_ARGS__);\
+        }\
+        else\
+        {\
+            BASE_Precon_TWO_STEP_GAUSS_SEIDEL_BWD(__VA_ARGS__);\
+        }\
     }\
     else\
     {\
@@ -307,6 +324,110 @@ namespace RACE {
             }\
         }\
     }\
+
+
+//for TWO-STEP-GAUSS-SEIDEL you can't write row-wise formulation
+#define BASE_Precon_TWO_STEP_GAUSS_SEIDEL_BWD()\
+    array_type* mpkInArray;\
+    array_type* mpkOutArray;\
+    int mpk_cur_offset;\
+    int mpk_next_offset;\
+    double gamma = innerDamping;\
+    if(subPow == startSubPow) /*right-prec*/\
+    {\
+        if(initVecIsZero) \
+        {\
+            /*g=D^{-1}b*/\
+            /*find residual*/\
+            /*r=b*/\
+            mpkInArray = preconTmp;\
+            mpk_cur_offset = subPow-1;\
+            /* g_0 = gamma*D^{-1}(b) */\
+            if(startSubPow == endSubPow)\
+            {\
+                mpkOutArray = preconOutArray;\
+                mpk_next_offset = precon_next_offset;\
+            }\
+            else\
+            {\
+                mpkOutArray = preconTmp;\
+                mpk_next_offset = 1;\
+            }\
+            for(LocalOrdinal row=start; row<end; ++row)\
+            {\
+                (*mpkOutArray)[mpk_next_offset][row] = (gamma*U->invDiag[row]*(*preconInArray)[precon_cur_offset][row]);\
+            }\
+        }\
+        else\
+        {\
+            /*find residual*/\
+            /*This branch is currently useless, because initVec is always 0*/\
+            mpkInArray = preconTmp;\
+            mpk_cur_offset = subPow-1;\
+            /* x_k+1 = x_k + gamma*D^{-1}(b-Ax_k) */\
+            if(startSubPow == endSubPow)\
+            {\
+                mpkOutArray = preconOutArray;/*happens if inner iter=0*/\
+                mpk_next_offset = precon_next_offset;\
+                /*TODO: Storing (*mpkInArray)[0][row] xInit will not work in case of
+                 * LEFT and in case of right tmp has to be initialized*/\
+                BASE_PRECON_MPK_splitLU(-gamma, + (gamma*U->invDiag[row]*(*preconInArray)[precon_cur_offset][row]) + (*mpkInArray)[mpk_cur_offset][row]);\
+            }\
+            /* g_0 = gamma*D^{-1}(b-Ax_k) */\
+            else\
+            {\
+                mpkOutArray = preconTmp;\
+                mpk_next_offset = 1;\
+                BASE_PRECON_MPK_splitLU(-gamma, + (gamma*U->invDiag[row]*(*preconInArray)[precon_cur_offset][row]));\
+            }\
+        }\
+    }\
+    else if(subPow <= endSubPow)\
+    {\
+        if(initVecIsZero) /*Remember incase initVec is 0, then one less subPow is only needed*/\
+        {\
+            double gamma2 = 1-gamma;\
+            /*This can be done on two arrays too, by swapping but we avoid it*/\
+            mpkInArray = preconTmp;\
+            mpkOutArray = preconTmp;\
+            mpk_cur_offset = subPow-1;\
+            mpk_next_offset = subPow;\
+            /*Jacobi-Richardson iteration*/\
+            /*g_k+1 = g_0 - D^{-1}Lg_k*/\
+            if(subPow == (endSubPow))\
+            {\
+                mpkOutArray = preconOutArray;\
+                mpk_next_offset = precon_next_offset;\
+                BASE_PRECON_MPK_upper(-gamma, + (*mpkInArray)[1][row] + gamma2*(*mpkInArray)[mpk_cur_offset][row]);\
+            }\
+            else\
+            {\
+                BASE_PRECON_MPK_upper(-gamma, + (*mpkInArray)[1][row] + gamma2*(*mpkInArray)[mpk_cur_offset][row]);\
+            }\
+        }\
+        else\
+        {\
+            double gamma2 = 1-gamma;\
+            /*This can be done on two arrays too, by swapping but we avoid it*/\
+            mpkInArray = preconTmp;\
+            mpkOutArray = preconTmp;\
+            mpk_cur_offset = subPow-1;\
+            mpk_next_offset = subPow;\
+            /*Jacobi-Richardson iteration*/\
+            /*g_k+1 = g_0 - D^{-1}Lg_k*/\
+            if(subPow == (endSubPow))\
+            {\
+                mpkOutArray = preconOutArray;\
+                mpk_next_offset = precon_next_offset;\
+                BASE_PRECON_MPK_upper(-gamma, + (*mpkInArray)[1][row] + gamma2*(*mpkInArray)[mpk_cur_offset][row] + (*mpkInArray)[0][row]);/*do update too*/\
+            }\
+            else\
+            {\
+                BASE_PRECON_MPK_upper(-gamma, + (*mpkInArray)[1][row] + gamma2*(*mpkInArray)[mpk_cur_offset][row]);\
+            }\
+        }\
+    }\
+
 
 #define GENERATE_KERNEL_Precon(_precon_)\
     template <typename packtype>\

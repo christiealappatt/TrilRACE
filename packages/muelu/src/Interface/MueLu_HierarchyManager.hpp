@@ -273,6 +273,11 @@ namespace MueLu {
       }
       if (!matvecParams_.is_null())
         H.SetMatvecParams(matvecParams_);
+
+#ifdef HAVE_MUELU_RACE
+      if(!RACEParams_.is_null())
+          H.SetRACEParams(RACEParams_);
+#endif
       H.AllocateLevelMultiVectors(sizeOfMultiVectors_);
       // Set hierarchy description.
       // This is cached, but involves and MPI_Allreduce.
@@ -373,6 +378,9 @@ namespace MueLu {
     Teuchos::RCP<Teuchos::ParameterList> matvecParams_;
 
     std::map<int, std::vector<keep_pair> > keep_;
+#ifdef HAVE_MUELU_RACE
+    Teuchos::RCP<Teuchos::ParameterList> RACEParams_;
+#endif
     //! @}
 
   private:

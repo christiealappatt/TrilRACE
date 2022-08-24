@@ -195,6 +195,7 @@ namespace MueLu {
   "<ParameterList name=\"smoother: params\"/>"
   "<ParameterList name=\"smoother: pre params\"/>"
   "<ParameterList name=\"smoother: post params\"/>"
+  "<ParameterList name=\"RACE: params\"/>"
   "<Parameter name=\"smoother: overlap\" type=\"int\" value=\"0\"/>"
   "<Parameter name=\"smoother: pre overlap\" type=\"int\" value=\"0\"/>"
   "<Parameter name=\"smoother: post overlap\" type=\"int\" value=\"0\"/>"

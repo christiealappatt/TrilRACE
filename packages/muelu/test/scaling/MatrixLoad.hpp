@@ -230,13 +230,20 @@ void MatrixLoad(Teuchos::RCP<const Teuchos::Comm<int> > &comm,  Xpetra::Underlyi
 
   if (rhsFile.empty()) {
     // we set seed for reproducibility
-    Utilities::SetRandomSeed(*comm);
-    X->randomize();
+    //Utilities::SetRandomSeed(*comm);
+    //X->randomize();
+    //making X constant, do do not need to worry about permutation and
+    //convergence remains independent of permutations
+    X->putScalar(1.0);
+    Teuchos::Array<typename STS::magnitudeType> norms(numVectors);
+    X->norm2(norms);
+    X->scale(1.0/norms[0]);
+
     A->apply(*X, *B, Teuchos::NO_TRANS, one, zero);
 
-    Teuchos::Array<typename STS::magnitudeType> norms(numVectors);
-    B->norm2(norms);
-    B->scale(one/norms[0]);
+    //Teuchos::Array<typename STS::magnitudeType> norms(numVectors);
+    //B->norm2(norms);
+    //B->scale(one/norms[0]);
 
   } else {
     // read in B

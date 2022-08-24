@@ -87,6 +87,19 @@ The source code is not MueLu specific and can be used with any Stratimikos strat
 #include <Thyra_Ifpack2PreconditionerFactory.hpp>
 #endif
 
+#include "RACE_frontend.hpp"
+
+
+// See example here:
+//
+// http://en.cppreference.com/w/cpp/string/byte/toupper
+std::string stringToUpper (std::string s)
+{
+  std::transform (s.begin (), s.end (), s.begin (),
+                  [] (unsigned char c) { return std::toupper (c); });
+  return s;
+}
+
 
 // Main wrappers struct
 // Because C++ doesn't support partial template specialization of functions.
@@ -132,7 +145,7 @@ int MainWrappers<double,LocalOrdinal,GlobalOrdinal,Node>::main_(Teuchos::Command
     // Parameters
     //
     // manage parameters of the test case
-    Galeri::Xpetra::Parameters<GlobalOrdinal> matrixParameters(clp, 100, 100, 100, "Laplace2D");
+    Galeri::Xpetra::Parameters<GlobalOrdinal> matrixParameters(clp, 160, 160, 160, "Laplace3D");
     // manage parameters of Xpetra
     Xpetra::Parameters                        xpetraParameters(clp);
 
@@ -155,6 +168,10 @@ int MainWrappers<double,LocalOrdinal,GlobalOrdinal,Node>::main_(Teuchos::Command
     std::string materialFile;                           clp.setOption("material",              &materialFile,      "material data file");
     int         numVectors        = 1;                  clp.setOption("multivector",           &numVectors,        "number of rhs to solve simultaneously");
     int         numSolves         = 1;                  clp.setOption("numSolves",             &numSolves,         "number of times the system should be solved");
+    bool useRACEreordering = false; clp.setOption("useRACEreordering", "no-useRACEreordering", &useRACEreordering, "Use RACE to accelerate the smoothers");
+    double RACE_cacheSize = -1; clp.setOption("RACE_cacheSize", &RACE_cacheSize, "Cache size used for RACE reordering");
+    int  RACE_highestPower = 1; clp.setOption("RACE_highestPower", &RACE_highestPower, "Highest power used for RACE reordering");
+
 
     switch (clp.parse(argc,argv)) {
       case Teuchos::CommandLineProcessor::PARSE_HELP_PRINTED:        return EXIT_SUCCESS;
@@ -182,6 +199,7 @@ int MainWrappers<double,LocalOrdinal,GlobalOrdinal,Node>::main_(Teuchos::Command
     else
       Teuchos::updateParametersFromXmlFileAndBroadcast(xmlFileName, paramList.ptr(), *comm);
 
+    paramList->print();
     //
     // Construct the problem
     //
@@ -191,22 +209,192 @@ int MainWrappers<double,LocalOrdinal,GlobalOrdinal,Node>::main_(Teuchos::Command
     RCP<RealValuedMultiVector> coordinates;
     RCP<MultiVector>           nullspace;
     RCP<MultiVector>           material;
-    RCP<MultiVector>           X, B;
+    RCP<MultiVector>           X, B, X_soln;
 
     std::ostringstream galeriStream;
-    MatrixLoad<SC,LocalOrdinal,GlobalOrdinal,Node>(comm,lib,binaryFormat,matrixFile,rhsFile,rowMapFile,colMapFile,domainMapFile,rangeMapFile,coordFile,coordMapFile,nullFile,materialFile,map,A,coordinates,nullspace,material,X,B,numVectors,matrixParameters,xpetraParameters,galeriStream);
+    MatrixLoad<SC,LocalOrdinal,GlobalOrdinal,Node>(comm,lib,binaryFormat,matrixFile,rhsFile,rowMapFile,colMapFile,domainMapFile,rangeMapFile,coordFile,coordMapFile,nullFile,materialFile,map,A,coordinates,nullspace,material,X_soln,B,numVectors,matrixParameters,xpetraParameters,galeriStream);
     out << galeriStream.str();
+    X = MultiVectorFactory::Build(map, numVectors);
     X->putScalar(0);
-
     //
     // Build Thyra linear algebra objects
     //
 
-    RCP<const Xpetra::CrsMatrixWrap<Scalar,LocalOrdinal,GlobalOrdinal,Node> > xpCrsA = Teuchos::rcp_dynamic_cast<const Xpetra::CrsMatrixWrap<Scalar,LocalOrdinal,GlobalOrdinal,Node> >(A);
+    RCP<Tpetra::CrsMatrix<Scalar,LocalOrdinal,GlobalOrdinal,Node> > tpCrs_A = MueLu::Utilities<Scalar,LocalOrdinal,GlobalOrdinal,Node>::Op2NonConstTpetraCrs(A);
 
+    RCP<Tpetra::CrsMatrix<Scalar,LocalOrdinal,GlobalOrdinal,Node> > tpRACE_A;
+    using RACE_type = RACE::frontend<Scalar, LocalOrdinal, GlobalOrdinal, Node>;
+
+    std::string smootherType = "NONE";
+    RCP<ParameterList> smootherParamPreList = rcp(new ParameterList("params"));
+    RCP<ParameterList> smootherParamPostList = rcp(new ParameterList("params"));
+    if (paramList->isSublist("Preconditioner Types") && paramList->sublist("Preconditioner Types").isSublist("MueLu") )
+    {
+        smootherType = paramList->sublist("Preconditioner Types").sublist("MueLu").get("smoother: type", "NONE");
+        if(smootherType == "NONE")
+        {
+            std::string smootherType_pre = paramList->sublist("Preconditioner Types").sublist("MueLu").get("smoother: pre type", "NONE");
+            std::string smootherType_post = paramList->sublist("Preconditioner Types").sublist("MueLu").get("smoother: post type", "NONE");
+
+            if(smootherType_pre != smootherType_post)
+            {
+                printf("Not employing RACE. Currently we employ RACE only if pre and post smoothers are same\n");
+            }
+            else
+            {
+                smootherType = smootherType_pre;
+            }
+
+        }
+        printf("smootherType = %s\n", smootherType.c_str());
+        if(paramList->sublist("Preconditioner Types").sublist("MueLu").isSublist("smoother: params"))
+        {
+            (*smootherParamPreList) = paramList->sublist("Preconditioner Types").sublist("MueLu").sublist("smoother: params");
+            (*smootherParamPostList) = paramList->sublist("Preconditioner Types").sublist("MueLu").sublist("smoother: params");
+        }
+        else if(paramList->sublist("Preconditioner Types").sublist("MueLu").isSublist("smoother: pre params"))
+        {
+            (*smootherParamPreList) = paramList->sublist("Preconditioner Types").sublist("MueLu").sublist("smoother: pre params");
+            if(paramList->sublist("Preconditioner Types").sublist("MueLu").isSublist("smoother: post params"))
+            {
+                (*smootherParamPostList) = paramList->sublist("Preconditioner Types").sublist("MueLu").sublist("smoother: post params");
+            }
+
+        }
+    }
+
+    Teuchos::RCP<RACE_type> race;
+    void* raceVoidHandle = NULL;
+    int raceTunedPow = 1;
+
+    //bool RACEswitchOff = true;;
+    bool RACEswitchOff = true;
+    std::string RACE_precon_type = "NONE";
+
+    if(useRACEreordering)
+    {
+        ParameterList RACE_params("RACE");
+        //currently we assume pre and post smoother are the same, only direction
+        //can change independently
+        std::string smootherSubType = smootherParamPreList->get("relaxation: type", "NONE");
+        if(stringToUpper(smootherType) != "NONE")
+        {
+            if(stringToUpper(smootherType) == "RELAXATION")
+            {
+
+                if(stringToUpper(smootherSubType) == "TWO-STAGE GAUSS-SEIDEL")
+                {
+                    RACE_precon_type = "TWO-STEP-GAUSS-SEIDEL";
+                    int smootherInnerSweep_default = 1;
+                    int smootherInnerSweep = smootherParamPreList->get("relaxation: inner sweeps", smootherInnerSweep_default);
+                    RACE_params.set("Inner iteration", smootherInnerSweep);
+                    double gamma_default = 1;
+                    double gamma = smootherParamPreList->get("relaxation: inner damping factor", gamma_default);
+                    RACE_params.set("Inner damping", gamma);
+                    bool smoother_pre_dir = smootherParamPreList->get("relaxation: backward mode", false);
+                    bool smoother_post_dir = smootherParamPostList->get("relaxation: backward mode", false);
+                    RACE_params.set("Pre-smoother direction", smoother_pre_dir);
+                    RACE_params.set("Post-smoother direction", smoother_post_dir);
+                    int smootherOuterSweep_default = 1;
+                    int smootherOuterSweep = smootherParamPreList->get("relaxation: sweeps", smootherOuterSweep_default);
+                    RACE_params.set("Outer iteration", smootherOuterSweep);
+                    RACEswitchOff = false;
+                }
+            }
+            else if(stringToUpper(smootherType) == "CHEBYSHEV")
+            {
+                RACE_precon_type = "CHEBYSHEV";
+                /*Ifpack2 ignores min and accepts only max and ratio, so we
+                 * mimic that
+                 * double lambdaMin = std::nan("");
+                lambdaMin = smootherParamPreList->get("chebyshev: min eigenvalue", lambdaMin);*/
+                double lambdaMax = std::nan("");
+                if(smootherParamPreList->isParameter("chebyshev: max eigenvalue"))
+                {
+                    lambdaMax = smootherParamPreList->get("chebyshev: max eigenvalue", lambdaMax);
+                    RACE_params.set("max eigenvalue", lambdaMax);
+                }
+                double eigRatio = 20; //default in Ifpack2
+                if(smootherParamPreList->isParameter("chebyshev: ratio eigenvalue"))
+                {
+                    eigRatio = smootherParamPreList->get("chebyshev: ratio eigenvalue", eigRatio);
+                }
+                RACE_params.set("ratio eigenvalue", eigRatio);
+                RACE_params.set("min eigenvalue", lambdaMax/eigRatio);
+                int smootherOuterSweep_default = 1;
+                int smootherOuterSweep = smootherParamPreList->get("chebyshev: degree", smootherOuterSweep_default);
+                RACE_params.set("Outer iteration", smootherOuterSweep);
+                RACEswitchOff = false;
+            }
+        }
+
+        if(RACEswitchOff)
+        {
+            printf("RACE does not support %s:%s smoother. Switching off RACE\n", smootherType.c_str(), smootherSubType.c_str());
+            useRACEreordering=false;
+        }
+
+        //cache size in MB
+        RACE_params.set("Cache size", RACE_cacheSize);
+        RACE_params.set("Highest power", RACE_highestPower);
+        RACE_params.set("Preconditioner", RACE_precon_type);
+     // paramList->setParameters(RACE_params); //push RACE parameters to the pramList
+//#ifdef BELOS_TEUCHOS_TIME_MONITOR
+        Teuchos::RCP<Teuchos::Time> RACEPreTime;
+        RACEPreTime = Teuchos::TimeMonitor::getNewCounter("Total RACE pre-procesing time");
+//#endif
+        {
+//#ifdef BELOS_TEUCHOS_TIME_MONITOR
+            Teuchos::TimeMonitor updateTimer( *RACEPreTime);
+//#endif
+
+
+            race = Teuchos::RCP<RACE_type>(new RACE_type(tpCrs_A, RACE_params));
+            tpRACE_A = race->getPermutedMatrix();
+            raceVoidHandle = (void*)(race.getRawPtr());
+
+        }
+//#ifdef BELOS_TEUCHOS_TIME_MONITOR
+        Teuchos::RCP<Teuchos::Time> RACETuningTime;
+        RACETuningTime = Teuchos::TimeMonitor::getNewCounter("Total RACE tuning time");
+//#endif
+        {
+//#ifdef BELOS_TEUCHOS_TIME_MONITOR
+            Teuchos::TimeMonitor updateTimer( *RACETuningTime);
+//#endif
+            using Tpetra_MV = Tpetra::MultiVector<>;
+            //get tuned power size for GmresSstep
+            RCP<Tpetra_MV> test_x, test_b, test_r;
+            test_x = Teuchos::rcp (new Tpetra_MV(tpCrs_A->getRangeMap(), 1));
+            test_b = Teuchos::rcp (new Tpetra_MV(tpCrs_A->getRangeMap(), 1));
+            test_r = Teuchos::rcp (new Tpetra_MV(tpCrs_A->getRangeMap(), 1));
+            std::vector<std::complex<double>> theta(RACE_highestPower, -1);
+            raceTunedPow = race->apply_Smoother(RACE_highestPower, *test_x, *test_b, *test_r, false, true, -1);
+            //raceTunedPow = race->apply(highestPower, *test, 1, 0, -1);
+            printf("tuned pow = %d\n", raceTunedPow);
+        }
+
+        RACE_params.set("RACE void handle", raceVoidHandle);
+        RACE_params.set("Use RACE", useRACEreordering);
+       // RACE_params.set("Use RACE", false);
+        RACE_params.set("RACE tuned power", raceTunedPow);
+        paramList->sublist("Preconditioner Types").sublist("MueLu").set("RACE: params", RACE_params);
+
+        //for getting eigenvalues
+        paramList->sublist("Preconditioner Types").sublist("MueLu").sublist("smoother: params").set("RACE: params", RACE_params);
+
+    }
+    else
+    {
+        tpRACE_A = tpCrs_A;
+    }
+
+    RCP<Xpetra::CrsMatrix<Scalar,LocalOrdinal,GlobalOrdinal,Node> > Axt = rcp(new Xpetra::TpetraCrsMatrix<SC,LO,GO,NO>(tpRACE_A));
+    RCP<const Xpetra::CrsMatrixWrap<Scalar,LocalOrdinal,GlobalOrdinal,Node> > xpCrsA = rcp(new Xpetra::CrsMatrixWrap<Scalar,LocalOrdinal,GlobalOrdinal,Node> (Axt));
     RCP<const Thyra::LinearOpBase<Scalar> >    thyraA = Xpetra::ThyraUtils<Scalar,LocalOrdinal,GlobalOrdinal,Node>::toThyra(xpCrsA->getCrsMatrix());
     RCP<      Thyra::MultiVectorBase<Scalar> > thyraX = Teuchos::rcp_const_cast<Thyra::MultiVectorBase<Scalar> >(Xpetra::ThyraUtils<Scalar,LocalOrdinal,GlobalOrdinal,Node>::toThyraMultiVector(X));
     RCP<const Thyra::MultiVectorBase<Scalar> > thyraB = Xpetra::ThyraUtils<Scalar,LocalOrdinal,GlobalOrdinal,Node>::toThyraMultiVector(B);
+
 
     //
     // Build Stratimikos solver
@@ -227,8 +415,8 @@ int MainWrappers<double,LocalOrdinal,GlobalOrdinal,Node>::main_(Teuchos::Command
     if (paramList->isSublist("Preconditioner Types") &&
         paramList->sublist("Preconditioner Types").isSublist("MueLu")) {
         ParameterList& userParamList = paramList->sublist("Preconditioner Types").sublist("MueLu").sublist("user data");
-        userParamList.set<RCP<RealValuedMultiVector> >("Coordinates", coordinates);
-        userParamList.set<RCP<MultiVector> >("Nullspace", nullspace);
+        //userParamList.set<RCP<RealValuedMultiVector> >("Coordinates", coordinates);//Cheking what happens with pure AMG
+        //userParamList.set<RCP<MultiVector> >("Nullspace", nullspace);
       }
 
     // Setup solver parameters using a Stratimikos parameter list.
@@ -243,27 +431,83 @@ int MainWrappers<double,LocalOrdinal,GlobalOrdinal,Node>::main_(Teuchos::Command
       prec = precFactory->createPrec();
 
       // Build a Thyra operator corresponding to A^{-1} computed using the Stratimikos solver.
-      Thyra::initializePrec<double>(*precFactory, thyraA, prec.ptr());
+      Thyra::initializePrec<Scalar>(*precFactory, thyraA, prec.ptr());
       thyraInverseA = solverFactory->createOp();
-      Thyra::initializePreconditionedOp<double>(*solverFactory, thyraA, prec, thyraInverseA.ptr());
+      Thyra::initializePreconditionedOp<Scalar>(*solverFactory, thyraA, prec, thyraInverseA.ptr());
     } else {
       thyraInverseA = Thyra::linearOpWithSolve(*solverFactory, thyraA);
     }
 
-    // Solve Ax = b.
-    Thyra::SolveStatus<Scalar> status = Thyra::solve<Scalar>(*thyraInverseA, Thyra::NOTRANS, *thyraB, thyraX.ptr());
+    Teuchos::RCP<Teuchos::Time> solveTime;
+    solveTime = Teuchos::TimeMonitor::getNewCounter("Pure solve time");
+    Thyra::SolveStatus<Scalar> status;
+    {
+        Teuchos::TimeMonitor updateTimer( *solveTime);
+        // Solve Ax = b.
+        status = Thyra::solve<Scalar>(*thyraInverseA, Thyra::NOTRANS, *thyraB, thyraX.ptr());
+        success = (status.solveStatus == Thyra::SOLVE_STATUS_CONVERGED);
 
-    success = (status.solveStatus == Thyra::SOLVE_STATUS_CONVERGED);
+        for (int solveno = 1; solveno < numSolves; solveno++) {
+            if (!precFactory.is_null())
+                Thyra::initializePrec<double>(*precFactory, thyraA, prec.ptr());
+            thyraX->assign(0.);
 
-    for (int solveno = 1; solveno < numSolves; solveno++) {
-      if (!precFactory.is_null())
-        Thyra::initializePrec<double>(*precFactory, thyraA, prec.ptr());
-      thyraX->assign(0.);
+            status = Thyra::solve<Scalar>(*thyraInverseA, Thyra::NOTRANS, *thyraB, thyraX.ptr());
 
-      status = Thyra::solve<Scalar>(*thyraInverseA, Thyra::NOTRANS, *thyraB, thyraX.ptr());
-
-      success = success && (status.solveStatus == Thyra::SOLVE_STATUS_CONVERGED);
+            success = success && (status.solveStatus == Thyra::SOLVE_STATUS_CONVERGED);
+        }
     }
+
+    //find convergence and others
+    Teuchos::Array<typename STS::magnitudeType> norm_vec(numVectors);
+    STS::magnitudeType err_norm=0, res_norm=0, b_norm=0, x_norm;
+    RCP<MultiVector> res = Utilities::Residual(*A, *X, *B);
+    res->norm2(norm_vec);
+    for(int j=0; j<numVectors; ++j)
+    {
+        res_norm = norm_vec[j] > res_norm ? norm_vec[j]:res_norm;
+    }
+    X_soln->update(1.0, *X, -1.0);
+    X_soln->norm2(norm_vec);
+    for(int j=0; j<numVectors; ++j)
+    {
+        err_norm = norm_vec[j] > err_norm ? norm_vec[j]:err_norm;
+    }
+    B->norm2(norm_vec);
+    for(int j=0; j<numVectors; ++j)
+    {
+        b_norm = norm_vec[j] > b_norm ? norm_vec[j]:b_norm;
+    }
+    X->norm2(norm_vec);
+    for(int j=0; j<numVectors; ++j)
+    {
+        x_norm = norm_vec[j] > x_norm ? norm_vec[j]:x_norm;
+    }
+
+    using std::cout;
+    using std::endl;
+    std::string str = status.message;
+    std::string startDelim = "Maximum Iterations:";
+    std::string endDelim = ", Maximum Restarts:";
+    unsigned first = str.find(startDelim);
+    //now get the substring after start
+    std::string secStr = str.substr(first+startDelim.size());
+    unsigned last = secStr.find(", Maximum Restarts:");
+    std::string iterStr = secStr.substr (0,last);
+    cout << "Results:" << endl
+        << "  Converged: " << (success ? "true" : "false") << endl
+        << "  Number of iterations: " << atoi(iterStr.c_str()) << endl
+        << "  Achieved tolerance: " << status.achievedTol << endl
+     //   << "  Loss of accuracy: " << status.lossOfAccuracy << endl
+        << "  ||B-A*X||_2: " << res_norm << endl
+        << "  ||X-X_soln||_2: " << err_norm << endl
+        << "  ||B||_2: " << b_norm << endl
+        << "  ||X||_2: " << x_norm << endl;
+    if (b_norm != Kokkos::ArithTraits<STS::magnitudeType>::zero ()) {
+        cout << "  ||B-A*X||_2 / ||B||_2: " << (res_norm / b_norm)
+            << endl;
+    }
+    cout << endl;
 
     // print timings
     if (printTimings) {

@@ -73,8 +73,11 @@
 #include "MueLu_SmootherBase.hpp"
 
 #include "Teuchos_TimeMonitor.hpp"
+#include <Xpetra_MultiVectorFactory.hpp>
 
-
+#ifdef HAVE_MUELU_RACE
+#include "RACE_frontend.hpp"
+#endif
 
 namespace MueLu {
 
@@ -283,6 +286,13 @@ namespace MueLu {
       }
     }
   }
+
+#ifdef HAVE_MUELU_RACE
+  template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
+  void Hierarchy<Scalar, LocalOrdinal, GlobalOrdinal, Node>::SetRACEParams(RCP<ParameterList> raceParams) {
+      RACEParams_ = raceParams;
+  }
+#endif
 
   // The function uses three managers: fine, coarse and next coarse
   // We construct the data for the coarse level, and do requests for the next coarse
@@ -858,6 +868,7 @@ namespace MueLu {
   template <class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
   ConvergenceStatus Hierarchy<Scalar, LocalOrdinal, GlobalOrdinal, Node>::Iterate(const MultiVector& B, MultiVector& X, ConvData conv,
                                                                            bool InitialGuessIsZero, LO startLevel) {
+
     LO            nIts = conv.maxIts_;
     MagnitudeType tol  = conv.tol_;
 
@@ -974,36 +985,94 @@ namespace MueLu {
         }
 
       } else {
+
+          bool useRACE = false;
+          void* raceVoidHandle_=NULL;
+#ifdef HAVE_MUELU_RACE
+          if((startLevel == 0) && RACEParams_ != Teuchos::null) //doing only for fine level as this would bring in the benefit. Currently i dont pass the other matrix to RACE
+          {
+              useRACE =  RACEParams_->get("Use RACE", false);
+              if(useRACE)
+              {
+                  raceVoidHandle_ = RACEParams_->get("RACE void handle", raceVoidHandle_);
+                  if(raceVoidHandle_ == NULL)
+                  {
+                      printf("Error: You enabled RACE but the handle is not passed in. Disabling RACE\n");
+                      useRACE = false;
+                  }
+
+                  if(X.getNumVectors()>1)
+                  {
+                      useRACE = false;
+                  }
+              }
+          }
+#endif
+
         // On intermediate levels, we do cycles
         RCP<Level> Coarse = Levels_[startLevel+1];
-        {
-          // ============== PRESMOOTHING ==============
-          RCP<TimeMonitor> STime;
-          if (!useStackedTimer)
-            STime                     = rcp(new TimeMonitor(*this, prefix + "Solve : smoothing (total)"      , Timings0));
-          RCP<TimeMonitor> SLevelTime = rcp(new TimeMonitor(*this, prefix + "Solve : smoothing" + levelSuffix, Timings0));
-
-          if (Fine->IsAvailable("PreSmoother")) {
-            RCP<SmootherBase> preSmoo = Fine->Get< RCP<SmootherBase> >("PreSmoother");
-            preSmoo->Apply(X, B, zeroGuess);
-            zeroGuess  = false;
-          }
-        }
 
         RCP<MultiVector> residual;
+        if(!useRACE)
         {
-          RCP<TimeMonitor> ATime;
-          if (!useStackedTimer)
-            ATime                     = rcp(new TimeMonitor(*this, prefix + "Solve : residual calculation (total)"      , Timings0));
-          RCP<TimeMonitor> ALevelTime = rcp(new TimeMonitor(*this, prefix + "Solve : residual calculation" + levelSuffix, Timings0));
-          if (zeroGuess) {
-            // If there's a pre-smoother, then zeroGuess is false.  If there isn't and people still have zeroGuess set,
-            // then then X still has who knows what, so we need to zero it before we go to the coarse grid.
-            X.putScalar(zero);
-          }
+            {
+                // ============== PRESMOOTHING ==============
+                RCP<TimeMonitor> STime;
+                if (!useStackedTimer)
+                    STime                     = rcp(new TimeMonitor(*this, prefix + "Solve : smoothing (total)"      , Timings0));
+                RCP<TimeMonitor> SLevelTime = rcp(new TimeMonitor(*this, prefix + "Solve : smoothing" + levelSuffix, Timings0));
 
-          Utilities::Residual(*A, X, B,*residual_[startLevel]);
-          residual = residual_[startLevel];
+                if (Fine->IsAvailable("PreSmoother")) {
+                    RCP<SmootherBase> preSmoo = Fine->Get< RCP<SmootherBase> >("PreSmoother");
+                    preSmoo->Apply(X, B, zeroGuess);
+
+                    zeroGuess  = false;
+                }
+            }
+
+            {
+                RCP<TimeMonitor> ATime;
+                if (!useStackedTimer)
+                    ATime                     = rcp(new TimeMonitor(*this, prefix + "Solve : residual calculation (total)"      , Timings0));
+                RCP<TimeMonitor> ALevelTime = rcp(new TimeMonitor(*this, prefix + "Solve : residual calculation" + levelSuffix, Timings0));
+                if (zeroGuess) {
+                    // If there's a pre-smoother, then zeroGuess is false.  If there isn't and people still have zeroGuess set,
+                    // then then X still has who knows what, so we need to zero it before we go to the coarse grid.
+                    X.putScalar(zero);
+                }
+
+                Utilities::Residual(*A, X, B,*residual_[startLevel]);
+                residual = residual_[startLevel];
+
+            }
+        }
+        else
+        {
+#ifdef HAVE_MUELU_RACE
+            using RACE_type = RACE::frontend<Scalar, LocalOrdinal, GlobalOrdinal, Node>;
+            Teuchos::RCP<RACE_type> raceHandle((RACE_type*) raceVoidHandle_, false);
+            int tunedPow = RACEParams_->get("RACE tuned power", 1);
+            int outerSweep = RACEParams_->get("Outer iteration", 1);
+            residual = Xpetra::MultiVectorFactory<Scalar,LocalOrdinal,GlobalOrdinal,Node>::Build(X.getMap(), X.getNumVectors(), false);
+            typedef Tpetra::MultiVector<Scalar,LocalOrdinal,GlobalOrdinal,Node> Tpetra_MultiVector;
+            Tpetra_MultiVector X_tpetra = Xpetra::toTpetra(X);
+            Tpetra_MultiVector B_tpetra = Xpetra::toTpetra(B);
+            Tpetra_MultiVector res_tpetra = Xpetra::toTpetra(*residual);
+            //printf("is Zero out = %d\n", zeroGuess);
+            /*if(startLevel == 0)
+            {
+                printf("before B\n");
+                for(int i=0; i<20; ++i)
+                {
+                    printf("%.10f\n", B.getData(0)[i]);
+                }
+            }*/
+
+            bool pre_smoother_back_dir = RACEParams_->get("Pre-smoother direction", false);
+            raceHandle->apply_Smoother(outerSweep, X_tpetra, B_tpetra, res_tpetra, zeroGuess, !pre_smoother_back_dir, tunedPow);
+            residual_[startLevel] = residual;
+            zeroGuess = false;
+#endif
         }
 
         RCP<Operator>    P = Coarse->Get< RCP<Operator> >("P");
@@ -1101,6 +1170,7 @@ namespace MueLu {
           }
         }
 
+        if(!useRACE)
         {
           // ============== POSTSMOOTHING ==============
           RCP<TimeMonitor> STime;
@@ -1113,6 +1183,22 @@ namespace MueLu {
             postSmoo->Apply(X, B, false);
           }
         }
+        else
+        {
+#ifdef HAVE_MUELU_RACE
+            using RACE_type = RACE::frontend<Scalar, LocalOrdinal, GlobalOrdinal, Node>;
+            Teuchos::RCP<RACE_type> raceHandle((RACE_type*) raceVoidHandle_, false);
+            int tunedPow = RACEParams_->get("RACE tuned power", 1);
+            int outerSweep = RACEParams_->get("Outer iteration", 1);
+            typedef Tpetra::MultiVector<Scalar,LocalOrdinal,GlobalOrdinal,Node> Tpetra_MultiVector;
+            Tpetra_MultiVector X_tpetra = Xpetra::toTpetra(X);
+            Tpetra_MultiVector B_tpetra = Xpetra::toTpetra(B);
+            bool post_smoother_back_dir = RACEParams_->get("Post-smoother direction", false);
+            raceHandle->apply_Smoother(outerSweep, X_tpetra, B_tpetra, zeroGuess, !post_smoother_back_dir, tunedPow);
+#endif
+        }
+
+
       }
       zeroGuess = false;
 

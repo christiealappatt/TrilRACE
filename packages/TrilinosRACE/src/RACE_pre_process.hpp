@@ -131,6 +131,10 @@ namespace RACE {
             double innerDamping;
             int* perm;
             int* invPerm;
+            //for Chebyshev
+            double lambdaMin;
+            double lambdaMax;
+            double eigRatio;
 
             /*original matrix*/
             Teuchos::RCP<CrsMatrixType> origA;
@@ -205,13 +209,51 @@ namespace RACE {
                 return preconPowerFactor;
             }
 
+            void evalGS2Params()
+            {
+                innerDamping = 1;
+                innerDamping = paramList.get("Inner damping", innerDamping);
+            }
             double getInnerDamping()
             {
                 return innerDamping;
             }
+            void evalChebyshevParams()
+            {
+                lambdaMin = std::nan("");
+                lambdaMin = paramList.get("min eigenvalue", lambdaMin);
+
+                lambdaMax = std::nan("");
+                lambdaMax = paramList.get("max eigenvalue", lambdaMax);
+
+                eigRatio = std::nan("");
+                eigRatio = paramList.get("ratio eigenvalue", eigRatio);
+            }
+            double getLambdaMin()
+            {
+                return lambdaMin;
+            }
+
+            double getLambdaMax()
+            {
+                return lambdaMax;
+            }
+
+            double getEigRatio()
+            {
+                return eigRatio;
+            }
+
+            //It reevaluates all dynamic parameters
+            void updateParamList(Teuchos::ParameterList newParams)
+            {
+                paramList.setParameters(newParams);
+                evalGS2Params();
+                evalChebyshevParams();
+            }
 
             //constructor
-            preProcess(Teuchos::RCP<CrsMatrixType> origA_, Teuchos::ParameterList& paramList): perm(NULL), invPerm(NULL), /*diag(NULL),*/ origA(origA_), permA(Teuchos::null), ce(NULL)
+            preProcess(Teuchos::RCP<CrsMatrixType> origA_, Teuchos::ParameterList& paramList_): perm(NULL), invPerm(NULL), paramList(paramList_), /*diag(NULL),*/ origA(origA_), permA(Teuchos::null), ce(NULL)
             {
                 if(origA == Teuchos::null)
                 {
@@ -252,48 +294,49 @@ namespace RACE {
                 //TODO: when support in kernels are available
                 //precon_start_w_zero = paramList.get("Preconditioner start with zero vector", precon_start_w_zero);
 
-                innerDamping = 1;
-                innerDamping = paramList.get("Inner damping", innerDamping);
+                //take inner damping value
+                evalGS2Params();
+                //lambdaMin, lambdaMax and eigRatio will be evaluated
+                evalChebyshevParams();
 
-                                preconPowerFactor = 1;
+                preconPowerFactor = 1;
                 //JACOBI-GAUSS-SEIDEL should be dropped as it somehow doesnt work, probably because of damping. Users are advised to use TWO-STAGE-GAUSS-SEIDEL instead
                 if(precon_type == "GAUSS-SEIDEL" || precon_type == "JACOBI-GAUSS-SEIDEL")
                 {
                     preconPowerFactor = 2;
 
                     /*if((highestPower > 1) || ( (precon_type == "GAUSS-SEIDEL") ))//|| (precon_type == "TWO-STEP-GAUSS-SEIDEL") )
-                    {
-                        //no recursion if power>1, since the order
-                        //of preconditioner application in different power
-                        //changes and not suitable for GMRES like solvers, would
-                        //need F-GMRES ==> this is not true and it works now
-                        //
-                        //no recursion at all (even for power=1) if pure GAUSS-SEIDEL (RIGHT), even in case of
-                        //power=1, because for some reason there is a problem (not
-                        //figured out yet, why at power=1)
-                        //I think its the ordering which is the problem, the L and
-                        //U part
-                        //This should be fixed now, error was in boundary
-                        //computations macros
-                        //std::string maxInt = std::to_string(std::numeric_limits<int>::max());
-                        //setenv("RACE_CACHE_VIOLATION_CUTOFF", maxInt.c_str(), 1); //last argument ensure overwrites
+                      {
+                    //no recursion if power>1, since the order
+                    //of preconditioner application in different power
+                    //changes and not suitable for GMRES like solvers, would
+                    //need F-GMRES ==> this is not true and it works now
+                    //
+                    //no recursion at all (even for power=1) if pure GAUSS-SEIDEL (RIGHT), even in case of
+                    //power=1, because for some reason there is a problem (not
+                    //figured out yet, why at power=1)
+                    //I think its the ordering which is the problem, the L and
+                    //U part
+                    //This should be fixed now, error was in boundary
+                    //computations macros
+                    //std::string maxInt = std::to_string(std::numeric_limits<int>::max());
+                    //setenv("RACE_CACHE_VIOLATION_CUTOFF", maxInt.c_str(), 1); //last argument ensure overwrites
                     }*/
                 }
                 /*else if((precon_type == "JACOBI-RICHARDSON") && (precon_start_w_zero == false))
                   {
-                    preconPowerFactor = 2;
-                }*/
+                  preconPowerFactor = 2;
+                  }*/
                 else if(precon_type == "TWO-STEP-GAUSS-SEIDEL")
                 {
                     /*
-                    preconPowerFactor = innerIter+1;
-                    if(precon_start_w_zero == false)
-                    {
-                        preconPowerFactor += 1; //need to find residual too
-                    }*/
+                       preconPowerFactor = innerIter+1;
+                       if(precon_start_w_zero == false)
+                       {
+                       preconPowerFactor += 1; //need to find residual too
+                       }*/
                     preconPowerFactor = innerIter+2;
                 }
-
 
                 Teuchos::ArrayRCP<const size_t> rowPointers;
                 Teuchos::ArrayRCP<const LocalOrdinal> columnIndices;

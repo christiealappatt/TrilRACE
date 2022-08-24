@@ -170,7 +170,9 @@ namespace MueLu {
   private:
     int  LastLevelID()      const { return Levels_.size() - 1; }
     void DumpCurrentGraph(int level) const;
-
+#ifdef HAVE_MUELU_RACE
+    RCP<ParameterList> RACEParams_;
+#endif
   public:
 
     //! Add a level at the end of the hierarchy
@@ -197,6 +199,10 @@ namespace MueLu {
     void CheckLevel(Level& level, int levelID);
 
     void SetMatvecParams(RCP<ParameterList> matvecParams);
+
+#ifdef HAVE_MUELU_RACE
+    void SetRACEParams(RCP<ParameterList> RACEParams);
+#endif
 
     //! Multi-level setup phase: build a new level of the hierarchy.
     /*!  This method is aimed to be used in a loop building the hierarchy level by level. See Hierarchy::Setup(manager, startLevel, numDesiredLevels) for an example of usage.

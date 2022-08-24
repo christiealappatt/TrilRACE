@@ -26,10 +26,10 @@ namespace RACE
 
             public:
             //constructor
-            frontend(Teuchos::RCP<CrsMatrixType> origA_, Teuchos::ParameterList& paramList, Teuchos::RCP<CrsMatrixType> M=Teuchos::null): pre(origA_, paramList)
+            frontend(Teuchos::RCP<CrsMatrixType> origA_, Teuchos::ParameterList& paramList, Teuchos::RCP<CrsMatrixType> M=Teuchos::null): pre(origA_, paramList), exec(&pre)
             {
                 //Teuchos::RCP<CrsMatrixType> permA = pre.getPermutedMatrix();
-                exec.init(&pre);
+                //exec.init(&pre);
             }
 
             Teuchos::RCP<CrsMatrixType> getPermutedMatrix()
@@ -78,6 +78,17 @@ namespace RACE
 
             using vec_type = Tpetra::MultiVector<Scalar, LocalOrdinal, GlobalOrdinal, Node>;
 
+            void updateParamList(Teuchos::ParameterList newParams)
+            {
+                pre.updateParamList(newParams);
+                exec.paramUptodate = false;
+            }
+
+            void setupKernels()
+            {
+                exec.setupParams();
+            }
+
             int apply(int power, vec_type &x, Scalar alpha=Teuchos::ScalarTraits<Scalar>::one(), Scalar beta = Teuchos::ScalarTraits<Scalar>::zero(), int tunedPow=1)
             {
                 std::string precType = exec.getPrecType();
@@ -94,7 +105,7 @@ namespace RACE
 
             using complex_type = typename packtype::complex_type;
 
-            int apply_Precon(int power, const vec_type &b, vec_type &x)
+            int apply_Precon(int power, const vec_type &b, vec_type &x, bool fwdDir=true)
             {
                 // timer
                 Teuchos::RCP< Teuchos::Time > timer  = Teuchos::TimeMonitor::getNewCounter ("RACE::Prec-apply");
@@ -103,7 +114,7 @@ namespace RACE
                 std::string precType = exec.getPrecType();
                 if( (precType=="NONE" || precType=="JACOBI") || (precType=="GAUSS-SEIDEL" || precType=="JACOBI-GAUSS-SEIDEL") || (precType=="TWO-STEP-GAUSS-SEIDEL") )
                 {
-                    return exec.PreconKernel(power, b, x);
+                    return exec.PreconKernel(power, b, x, fwdDir);
                 }
                 else
                 {
@@ -151,7 +162,7 @@ namespace RACE
                 }
             }
 
-            int apply_Smoother(int sweeps, vec_type &x, vec_type &b, bool zeroGuess=false)
+            int apply_Smoother(int sweeps, vec_type &x, vec_type &b, bool zeroGuess=false, bool fwdDir=true, int tunedPow=1)
             {
                 // timer
                 Teuchos::RCP< Teuchos::Time > timer  = Teuchos::TimeMonitor::getNewCounter ("RACE::MGSmoother kernel");
@@ -160,9 +171,9 @@ namespace RACE
 
                 //step size and use it
                 std::string precType = exec.getPrecType();
-                if( precType=="TWO-STEP-GAUSS-SEIDEL")
+                if( (precType=="TWO-STEP-GAUSS-SEIDEL") || (precType=="CHEBYSHEV") )
                 {
-                    return exec.MPK_MGSmootherKernel(x, b, zeroGuess);
+                    return exec.MPK_MGSmootherKernel(sweeps, x, b, zeroGuess, fwdDir, tunedPow);
                 }
                 else
                 {
@@ -172,7 +183,7 @@ namespace RACE
             }
 
             //fused with Residual computation
-            int apply_Smoother(int sweeps, vec_type &x, vec_type &b, vec_type &res, bool zeroGuess=false)
+            int apply_Smoother(int sweeps, vec_type &x, vec_type &b, vec_type &res, bool zeroGuess=false, bool fwdDir=true, int tunedPow=1)
             {
                 // timer
                 Teuchos::RCP< Teuchos::Time > timer  = Teuchos::TimeMonitor::getNewCounter ("RACE::MGSmoother+residual kernel");
@@ -181,9 +192,9 @@ namespace RACE
 
                 //step size and use it
                 std::string precType = exec.getPrecType();
-                if( precType=="TWO-STEP-GAUSS-SEIDEL")
+                if( (precType=="TWO-STEP-GAUSS-SEIDEL") || (precType=="CHEBYSHEV") )
                 {
-                    return exec.MPK_MGSmootherKernel(x, b, res, zeroGuess);
+                    return exec.MPK_MGSmootherKernel(sweeps, x, b, res, zeroGuess, fwdDir, tunedPow);
                 }
                 else
                 {
