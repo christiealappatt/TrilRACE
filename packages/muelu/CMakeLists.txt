@@ -120,6 +120,15 @@ IF (${PACKAGE_NAME}_ENABLE_Experimental)
   MESSAGE(STATUS "MueLu: Enabling experimental code")
 ENDIF()
 
+TRIBITS_ADD_OPTION_AND_DEFINE(
+    ${PACKAGE_NAME}_ENABLE_RACE
+    HAVE_MUELU_RACE
+    "Enable RACE (RACE is a graph library that can speedup matrix power
+    kernels). This can for example speedup some of the smoothers.
+    You must build Trilinos with RACE to use this, i.e., set Trilinos"
+    NO)
+
+
 # Enable additive variant
 TRIBITS_ADD_OPTION_AND_DEFINE(
   ${PACKAGE_NAME}_ENABLE_ADDITIVE_VARIANT

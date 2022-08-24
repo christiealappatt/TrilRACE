@@ -79,6 +79,8 @@
 #  define HAVE_MUELU_ZOLTAN2
 #endif
 
+/* Define if we are building with RACE*/
+#cmakedefine HAVE_MUELU_RACE
 
 /* Optional TPL */
 

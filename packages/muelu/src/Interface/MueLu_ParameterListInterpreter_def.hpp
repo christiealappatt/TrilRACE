@@ -466,6 +466,11 @@ namespace MueLu {
     if (paramList.isSublist("matvec params"))
       this->matvecParams_ = Teuchos::parameterList(paramList.sublist("matvec params"));
 
+#ifdef HAVE_MUELU_RACE
+    if (paramList.isSublist("RACE: params"))
+        this->RACEParams_ = Teuchos::parameterList(paramList.sublist("RACE: params"));
+#endif
+
     // Create default manager
     // FIXME: should it be here, or higher up
     RCP<FactoryManager> defaultManager = rcp(new FactoryManager());
@@ -2268,6 +2273,11 @@ namespace MueLu {
 
       if (hieraList.isSublist("matvec params"))
         this->matvecParams_ = Teuchos::parameterList(hieraList.sublist("matvec params"));
+
+#ifdef HAVE_MUELU_RACE
+      if (hieraList.isSublist("RACE: params"))
+          this->RACEParams_ = Teuchos::parameterList(hieraList.sublist("RACE: params"));
+#endif
 
 
       if (hieraList.isParameter("coarse grid correction scaling factor")) {

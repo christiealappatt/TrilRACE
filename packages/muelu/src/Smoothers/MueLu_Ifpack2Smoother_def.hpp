@@ -1,4 +1,3 @@
-// @HEADER
 //
 // ***********************************************************************
 //
@@ -110,9 +109,14 @@ namespace MueLu {
                                                                             type_ == "TOPOLOGICAL"                           ||
                                                                             type_ == "AGGREGATE");
     this->declareConstructionOutcome(!isSupported, "Ifpack2 does not provide the smoother '" + type_ + "'.");
+#ifdef HAVE_MUELU_RACE
+    raceHandle = Teuchos::null;
+    RACEParams_ = Teuchos::null;
+#endif
     if (isSupported)
       SetParameterList(paramList);
-  }
+
+     }
 
   template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
   void Ifpack2Smoother<Scalar, LocalOrdinal, GlobalOrdinal, Node>::SetParameterList(const Teuchos::ParameterList& paramList) {
@@ -123,6 +127,20 @@ namespace MueLu {
       // TODO: I don't know if Ifpack returns an error code or exception or ignore parameters modification in this case...
       SetPrecParameters();
     }
+
+#ifdef HAVE_MUELU_RACE
+    //set RACE if applicable
+    if (paramList.isSublist("RACE: params"))
+    {
+        RACEParams_ = Teuchos::parameterList(paramList.sublist("RACE: params"));
+        void* raceVoidHandle=NULL;
+        raceVoidHandle = RACEParams_->get("RACE void handle", raceVoidHandle);
+        if(raceVoidHandle)
+        {
+            raceHandle = rcp((RACE_type*) raceVoidHandle, false);
+        }
+    }
+#endif
   }
 
   template <class Scalar,class LocalOrdinal, class GlobalOrdinal, class Node>
@@ -745,6 +763,19 @@ namespace MueLu {
         this->GetOStream(Statistics1) << "chebyshev: max eigenvalue (calculated by Ifpack2)" << " = " << lambdaMax << std::endl;
       }
       TEUCHOS_TEST_FOR_EXCEPTION(lambdaMax == negone, Exceptions::RuntimeError, "MueLu::Ifpack2Smoother::Setup(): no maximum eigenvalue estimate");
+
+#ifdef HAVE_MUELU_RACE
+      if(this->raceHandle && (currentLevel.GetLevelID()==0))
+      {
+          //re-evaluate
+          this->RACEParams_->set("max eigenvalue", lambdaMax);
+          double ratio = 20;
+          ratio = this->RACEParams_->get("ratio eigenvalue", ratio);
+          this->RACEParams_->set("min eigenvalue", lambdaMax/ratio);
+          raceHandle->updateParamList(*RACEParams_);
+      }
+#endif
+
     }
   }
 
@@ -825,26 +856,33 @@ namespace MueLu {
 
     std::string maxEigString   = "chebyshev: max eigenvalue";
     std::string eigRatioString = "chebyshev: ratio eigenvalue";
-    
+
     // Get/calculate the maximum eigenvalue      
     if (paramList.isParameter(maxEigString)) {
-      if (paramList.isType<double>(maxEigString))
-        lambdaMax = paramList.get<double>(maxEigString);
-      else
-        lambdaMax = paramList.get<SC>(maxEigString);
-      this->GetOStream(Statistics1) << label << maxEigString << " (cached with smoother parameter list) = " << lambdaMax << std::endl;
-      
+        if (paramList.isType<double>(maxEigString))
+            lambdaMax = paramList.get<double>(maxEigString);
+        else
+            lambdaMax = paramList.get<SC>(maxEigString);
+        this->GetOStream(Statistics1) << label << maxEigString << " (cached with smoother parameter list) = " << lambdaMax << std::endl;
+
     } else {
-      lambdaMax = currentA->GetMaxEigenvalueEstimate();
-      if (lambdaMax != negone) {
-        this->GetOStream(Statistics1) << label << maxEigString << " (cached with matrix) = " << lambdaMax << std::endl;
-        paramList.set(maxEigString, lambdaMax);
-      }
+        lambdaMax = currentA->GetMaxEigenvalueEstimate();
+        if (lambdaMax != negone) {
+            this->GetOStream(Statistics1) << label << maxEigString << " (cached with matrix) = " << lambdaMax << std::endl;
+            paramList.set(maxEigString, lambdaMax);
+        }
     }
-    
+
+#ifdef HAVE_MUELU_RACE
+    if(this->raceHandle && (currentLevel.GetLevelID()==0))
+    {
+        this->RACEParams_->set("max eigenvalue", lambdaMax);
+    }
+#endif
+
     // Calculate the eigenvalue ratio
     const SC defaultEigRatio = 20;
-    
+
     SC ratio = defaultEigRatio;
     if (paramList.isParameter(eigRatioString)) {
       if (paramList.isType<double>(eigRatioString))
@@ -860,14 +898,23 @@ namespace MueLu {
       RCP<const Matrix> fineA = currentLevel.GetPreviousLevel()->Get<RCP<Matrix> >(matrixName);
       size_t nRowsFine   = fineA->getGlobalNumRows();
       size_t nRowsCoarse = currentA->getGlobalNumRows();
-      
+
       SC levelRatio = as<SC>(as<float>(nRowsFine)/nRowsCoarse);
       if (STS::magnitude(levelRatio) > STS::magnitude(ratio))
-        ratio = levelRatio;
+          ratio = levelRatio;
     }
-    
+
     this->GetOStream(Statistics1) << label << eigRatioString << " (computed) = " << ratio << std::endl;
     paramList.set(eigRatioString, ratio);
+
+#ifdef HAVE_MUELU_RACE
+    if(this->raceHandle && (currentLevel.GetLevelID()==0))
+    {
+        this->RACEParams_->set("ratio eigenvalue", ratio);
+        this->RACEParams_->set("min eigenvalue", lambdaMax/ratio);
+        raceHandle->updateParamList(*RACEParams_);
+    }
+#endif
 
     if (paramList.isParameter("chebyshev: use rowsumabs diagonal scaling")) {
       this->GetOStream(Runtime1) << "chebyshev: using rowsumabs diagonal scaling" << std::endl;

@@ -75,6 +75,10 @@
 #include "MueLu_Utilities_fwd.hpp"
 #include "MueLu_Aggregates_fwd.hpp"
 
+#ifdef HAVE_MUELU_RACE
+#include "RACE_frontend.hpp"
+#endif
+
 namespace MueLu {
 
   /*!
@@ -207,6 +211,11 @@ namespace MueLu {
     //! Get a rough estimate of cost per iteration
     size_t getNodeSmootherComplexity() const;
 
+#ifdef HAVE_MUELU_RACE
+    using RACE_type = RACE::frontend<Scalar, LocalOrdinal, GlobalOrdinal, Node>;
+    Teuchos::RCP<Teuchos::ParameterList> RACEParams_;
+    Teuchos::RCP<RACE_type> raceHandle;
+#endif
   private:
     void SetPrecParameters(const Teuchos::ParameterList& list = Teuchos::ParameterList()) const;
 
