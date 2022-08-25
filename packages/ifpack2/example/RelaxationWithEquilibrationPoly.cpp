@@ -2114,6 +2114,11 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
   }
 
 
+  outerSolverParams->set("Verbosity", 41);
+  outerSolverParams->set("Output Frequency", 1);
+  outerSolverParams->set("Output Style", 1);
+  outerSolverParams->set("Step Size", 4);
+
   outerSolverParams->set ("Convergence Tolerance", convergenceTolerance);
   outerSolverParams->set ("Maximum Iterations", maxIters);
   if( (solverType == "GMRES") || ((solverType == "TPETRA GMRES")  || (solverType == "TPETRA GMRES S-STEP")) ) {
@@ -2282,7 +2287,7 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
       cout << "  Restart length: " << restartLength << endl
            << "  Orthogonalization method: " << args.orthogonalizationMethod << endl;
     }
-    cout << "Results:" << endl
+    cout << "Final Results:" << endl
          << "  Converged: " << (result.converged ? "true" : "false") << endl
          << "  Number of iterations: " << result.numIters << endl
          << "  Achieved tolerance: " << result.achievedTolerance << endl
