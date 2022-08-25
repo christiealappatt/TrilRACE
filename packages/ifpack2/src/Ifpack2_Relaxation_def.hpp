@@ -2134,7 +2134,7 @@ ApplyInverseMTGS_CrsMatrix(
   bool update_y_vector = true;
   //false as it was done up already, and we dont want to zero it in each sweep.
   //CA: if we set it false here, there would be an extra SpMV if x is zero
-  //bool zero_x_vector = false;
+ // bool zero_x_vector = false;
   bool zero_x_vector = ZeroStartingSolution_;
 
   for (int sweep = 0; sweep < NumSweeps_; ++sweep) {
@@ -2176,7 +2176,7 @@ ApplyInverseMTGS_CrsMatrix(
     }
     update_y_vector = false;
 
-    //now set to false as we dont want to zero it in each sweep.
+    //CA: now set to false as we dont want to zero it in each sweep.
     zero_x_vector = false;
   }
 
