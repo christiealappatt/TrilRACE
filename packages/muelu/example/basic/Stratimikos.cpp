@@ -493,12 +493,12 @@ int MainWrappers<double,LocalOrdinal,GlobalOrdinal,Node>::main_(Teuchos::Command
     using std::cout;
     using std::endl;
     std::string str = status.message;
-    std::string startDelim = "Maximum Iterations:";
-    std::string endDelim = ", Maximum Restarts:";
+    std::string startDelim = "in";
+    std::string endDelim = "iterations with total";
     unsigned first = str.find(startDelim);
     //now get the substring after start
     std::string secStr = str.substr(first+startDelim.size());
-    unsigned last = secStr.find(", Maximum Restarts:");
+    unsigned last = secStr.find(endDelim);
     std::string iterStr = secStr.substr (0,last);
     cout << "Results:" << endl
         << "  Converged: " << (success ? "true" : "false") << endl
