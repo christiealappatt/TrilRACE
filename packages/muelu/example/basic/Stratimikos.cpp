@@ -209,10 +209,10 @@ int MainWrappers<double,LocalOrdinal,GlobalOrdinal,Node>::main_(Teuchos::Command
     RCP<RealValuedMultiVector> coordinates;
     RCP<MultiVector>           nullspace;
     RCP<MultiVector>           material;
-    RCP<MultiVector>           X, B, X_soln;
+    RCP<MultiVector>           X, B_orig, B, X_soln;
 
     std::ostringstream galeriStream;
-    MatrixLoad<SC,LocalOrdinal,GlobalOrdinal,Node>(comm,lib,binaryFormat,matrixFile,rhsFile,rowMapFile,colMapFile,domainMapFile,rangeMapFile,coordFile,coordMapFile,nullFile,materialFile,map,A,coordinates,nullspace,material,X_soln,B,numVectors,matrixParameters,xpetraParameters,galeriStream);
+    MatrixLoad<SC,LocalOrdinal,GlobalOrdinal,Node>(comm,lib,binaryFormat,matrixFile,rhsFile,rowMapFile,colMapFile,domainMapFile,rangeMapFile,coordFile,coordMapFile,nullFile,materialFile,map,A,coordinates,nullspace,material,X_soln,B_orig,numVectors,matrixParameters,xpetraParameters,galeriStream);
     out << galeriStream.str();
     X = MultiVectorFactory::Build(map, numVectors);
     X->putScalar(0);
@@ -354,7 +354,9 @@ int MainWrappers<double,LocalOrdinal,GlobalOrdinal,Node>::main_(Teuchos::Command
             raceVoidHandle = (void*)(race.getRawPtr());
 
         }
-//#ifdef BELOS_TEUCHOS_TIME_MONITOR
+
+        using Tpetra_MV = Tpetra::MultiVector<>;
+        //#ifdef BELOS_TEUCHOS_TIME_MONITOR
         Teuchos::RCP<Teuchos::Time> RACETuningTime;
         RACETuningTime = Teuchos::TimeMonitor::getNewCounter("Total RACE tuning time");
 //#endif
@@ -362,7 +364,6 @@ int MainWrappers<double,LocalOrdinal,GlobalOrdinal,Node>::main_(Teuchos::Command
 //#ifdef BELOS_TEUCHOS_TIME_MONITOR
             Teuchos::TimeMonitor updateTimer( *RACETuningTime);
 //#endif
-            using Tpetra_MV = Tpetra::MultiVector<>;
             //get tuned power size for GmresSstep
             RCP<Tpetra_MV> test_x, test_b, test_r;
             test_x = Teuchos::rcp (new Tpetra_MV(tpCrs_A->getRangeMap(), 1));
@@ -376,17 +377,22 @@ int MainWrappers<double,LocalOrdinal,GlobalOrdinal,Node>::main_(Teuchos::Command
 
         RACE_params.set("RACE void handle", raceVoidHandle);
         RACE_params.set("Use RACE", useRACEreordering);
-       // RACE_params.set("Use RACE", false);
+        //RACE_params.set("Use RACE", false);
         RACE_params.set("RACE tuned power", raceTunedPow);
         paramList->sublist("Preconditioner Types").sublist("MueLu").set("RACE: params", RACE_params);
 
         //for getting eigenvalues
         paramList->sublist("Preconditioner Types").sublist("MueLu").sublist("smoother: params").set("RACE: params", RACE_params);
 
+        B = MultiVectorFactory::Build(B_orig->getMap(), B_orig->getNumVectors());
+        Tpetra_MV B_orig_tpetra = Xpetra::toTpetra(*B_orig);
+        Tpetra_MV B_tpetra = Xpetra::toTpetra(*B);
+        race->origToPerm(B_tpetra, B_orig_tpetra);
     }
     else
     {
         tpRACE_A = tpCrs_A;
+        B = B_orig;
     }
 
     RCP<Xpetra::CrsMatrix<Scalar,LocalOrdinal,GlobalOrdinal,Node> > Axt = rcp(new Xpetra::TpetraCrsMatrix<SC,LO,GO,NO>(tpRACE_A));

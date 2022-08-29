@@ -49,25 +49,26 @@ namespace RACE
 
             using MV = Tpetra::MultiVector<Scalar, LocalOrdinal, GlobalOrdinal, Node>;
             //TODO: permToOrig
-            void origToPerm(Teuchos::RCP<MV> &dest_vec, Teuchos::RCP<const MV> src_vec)
+            void origToPerm(MV &dest_vec, const MV& src_vec)
             {
-                if(src_vec->getLocalLength() != pre.nrows)
+                if(src_vec.getLocalLength() != pre.getNrows())
                 {
                     ERROR_PRINT("Error in dimension");
                 }
 
-                Teuchos::ArrayRCP<Teuchos::ArrayRCP<const Scalar> > src_ptr = src_vec->get2dView();
-                Teuchos::ArrayRCP<Teuchos::ArrayRCP<Scalar> >      dest_ptr = dest_vec->get2dViewNonConst();
+                Teuchos::ArrayRCP<Teuchos::ArrayRCP<const Scalar> > src_ptr = src_vec.get2dView();
+                Teuchos::ArrayRCP<Teuchos::ArrayRCP<Scalar> >      dest_ptr = dest_vec.get2dViewNonConst();
 
+                int *perm = pre.getPerm();
 
-                for(size_t k=0; k < src_vec->getNumVectors(); k++)
+                for(size_t k=0; k < src_vec.getNumVectors(); k++)
                 {
-                    for(LocalOrdinal i=0; (size_t)i< src_vec->getLocalLength(); i++)
+                    for(LocalOrdinal i=0; (size_t)i< src_vec.getLocalLength(); i++)
                     {
                         int perm_row = i;
-                        if(pre.perm)
+                        if(perm)
                         {
-                            perm_row = pre.perm[i];
+                            perm_row = perm[i];
                         }
 
                         dest_ptr[k][i] = src_ptr[k][perm_row];

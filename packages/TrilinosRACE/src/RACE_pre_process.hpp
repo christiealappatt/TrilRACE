@@ -113,6 +113,9 @@ namespace RACE {
             using Scalar = typename packtype::SC;
             using LocalOrdinal = typename packtype::LO;
             using CrsMatrixType = typename packtype::CRS_type;
+            using MV_type = typename packtype::mvec_type;
+            using array_type = typename packtype::marray_type;
+            using const_array_type = typename packtype::const_marray_type;
             //using CrsMatrixType = Tpetra::CrsMatrix<Scalar, LocalOrdinal, GlobalOrdinal, Node>;
             Teuchos::ParameterList paramList;
             /*Matrix structure*/
@@ -161,6 +164,12 @@ namespace RACE {
             int preconPowerFactor;
 
             public:
+
+            int getNrows()
+            {
+                return nrows;
+            }
+
             int* getPerm()
             {
                 if(perm == NULL)
@@ -673,7 +682,28 @@ namespace RACE {
 
 
             }
+/*
+            MV_type* copyAndPermuteVector(MV_type* src)
+            {
+                MV_type* dest = new MV_type(src.getMap(), src.getNumVectors(), false);
 
+                const_array_type src_arr = src.get2dView();
+                array_type dest_arr = dest->get2dViewNonConst();
+                for(int row=0; row<src->getLocalLength(); ++row)
+                {
+                    int perm_row = row;
+                    if(perm != NULL)
+                    {
+                        perm_row = perm[row];
+                    }
+                    for(int col=0; col<vec->ncols; ++col)
+                    {
+                        dest_arr[col][row] = src_arr[col][perm_row];
+                    }
+                }
+                return dest;
+            }
+*/
             void numaInitRowPtr(size_t* newRowPtr)
             {
                 TrilinosRACE_ENCODE_ARG_NUMA(nrows, newRowPtr, NULL, NULL);

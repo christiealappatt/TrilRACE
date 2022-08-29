@@ -196,7 +196,7 @@ namespace RACE {
     for(LocalOrdinal row=start; row<end; ++row)\
     {\
         BASE_SpMV_KERNEL_IN_ROW(A, (*mpkInArray)[mpk_cur_offset]);\
-        (*mpkOutArray)[mpk_next_offset][row] = _scale_*tmp + __VA_ARGS__;\
+        (*mpkOutArray)[mpk_next_offset][row] = _scale_*tmp __VA_ARGS__;\
     }\
 
 
