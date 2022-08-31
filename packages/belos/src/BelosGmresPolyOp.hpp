@@ -1252,6 +1252,34 @@ namespace Belos {
         {
             theta_vec[i] = complex_type(theta_(i,0), theta_(i,1));
         }
+        for(int i=0; i<dim_; ++i)
+        {
+            theta_vec[i] = complex_type(theta_(i,0), theta_(i,1));
+            //ensure conjugate is really identical, so can RACE detect them
+            //theta_ as it is coming now is not perfect.
+            //here we need to make conjugate values really conjugate
+            if((theta_(i,1)!=SCT::zero()) && (!SCT::isComplex))
+            {
+                if((i+1)<dim_)
+                {
+                    theta_vec[i+1] = std::conj(theta_vec[i]);
+                    i=i+1;
+                }
+            }
+        }
+        /*
+        for(int i=0; i<dim_; ++i)
+        {
+            bool isConj=false;
+            if(i>0 && (theta_(i,1)!=0))
+            {
+                if(std::conj(theta_vec[i]) == theta_vec[i-1])
+                {
+                    isConj=true;
+                }
+            }
+            printf("theta = %f+i%f, is conj=%d\n", theta_vec[i].real(), theta_vec[i].imag(), isConj);
+        }*/
         {
 #ifdef BELOS_TEUCHOS_TIME_MONITOR
             Teuchos::TimeMonitor updateTimer( *timerMPK_RACE_ );
@@ -1261,7 +1289,7 @@ namespace Belos {
             //only y is updated as it is required after the call
             if(tunedPowerRACE_ == -1)
             {
-                printf("WARNING: Tuning for GmresPoly with RACE has to be done before entering the actual computation routine. Setting tuned power size for RACE as 1. This is not optimal.\n");
+                printf("WARNING: Tuning for GmresPoly with RACE has to be done before entering the actual computation routine. Setting tuned power size for RACE as 1. This might not be optimal.\n");
                 raceHandle->apply_GmresPolyPrecon(dim_-1, *prod, y, theta_vec, 1);
             }
             else
@@ -1270,21 +1298,36 @@ namespace Belos {
             }
         }
     }
+    /*
+    using array_type = typename Teuchos::ArrayRCP<Teuchos::ArrayRCP<ScalarType>>;
+    array_type prod_arr = prod->get2dViewNonConst();
+    for(int i=0; i<20; ++i)
+    {
+        printf("prod_arr[%d] = %f\n", i, (prod_arr)[0][i]);
+    }
+
+
+    array_type y_arr = y.get2dViewNonConst();
+    for(int i=0; i<20; ++i)
+    {
+        printf("y_arr[%d] = %f\n", i, (y_arr)[0][i]);
+    }*/
+
 #endif
 
     // Apply right preconditioner.
     if (!RP_.is_null()) {
-      Teuchos::RCP<MV> Ytmp = MVT::CloneCopy(y);
+        Teuchos::RCP<MV> Ytmp = MVT::CloneCopy(y);
 #ifdef HAVE_BELOS_RACE
-      if( (useRACE_) && (MVT::GetNumberVecs(x) == 1) ) //|| precon==true)
-      {
-          raceHandle->apply_Precon(1, *Ytmp, y);
-      }
-      else
+        if( (useRACE_) && (MVT::GetNumberVecs(x) == 1) ) //|| precon==true)
+        {
+            raceHandle->apply_Precon(1, *Ytmp, y);
+        }
+        else
 #endif
-      {
-          problem_->applyRightPrec( *Ytmp, y );
-      }
+        {
+            problem_->applyRightPrec( *Ytmp, y );
+        }
     }
   }
 

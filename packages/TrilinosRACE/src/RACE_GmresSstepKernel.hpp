@@ -232,6 +232,7 @@ namespace RACE {
                     mpk_next_offset = subPow-1;\
                     BASE_PRECON_MPK_splitUL(U->diag[row]);\
                 }\
+                /*This works only if initVec == 0*/\
                 int startSubPow = 1;\
                 int endSubPow = totSubPower-1;\
                 array_type* preconInArray = gmresSstepTmp;\

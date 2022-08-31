@@ -455,15 +455,38 @@ namespace RACE {
 
                 //now in case of theta(dim-1,1)=0 or SCT::isComplex do one
                 //iteration on y
+                int final_col_index = (power) % (allocCol+1);
                 if(!tunePhase && (theta[power].imag()==0 || packtype::STS::isComplex))
                 {
-                    int final_col_index = power % (allocCol+1);
                     //Teuchos::Range1D index_final(final_col_index, final_col_index);
                     //prod_subview =  workspacePolyPrecon->subViewNonConst (index_final);
                     prod_subview = workspacePolyPrecon->getVectorNonConst(final_col_index);
                     //y= y+(1/theta_r)*prod
                     y.update(1.0/(theta[power].real()), *prod_subview, 1);
                 }
+                /*bool prev_isConj = false;
+                if(power > 0)
+                {
+                    complex_type prev_theta = theta[power-1];
+                    complex_type cur_theta = theta[power];
+                    {
+                        if(std::conj(prev_theta) == cur_theta)
+                        {
+                            prev_isConj=true;
+                        }
+                    }
+                }
+                //if previous was in conj loop
+                if(prev_isConj)
+                {
+                    final_col_index = (power-1) % (allocCol+1);
+                    printf("prev was conj\n");
+                }
+
+                //copy back - just for check
+                prod_subview = workspacePolyPrecon->getVectorNonConst(final_col_index);
+                Tpetra::deep_copy(prod, *prod_subview);
+                */
 
                 return tunedPow;
             }

@@ -281,7 +281,7 @@ namespace RACE {
     }\
     else if(subPow <= endSubPow)\
     {\
-        if(initVecIsZero) /*Remember incase initVec is 0, then one less subPow is only needed*/\
+        if(initVecIsZero) /*Remember incase initVec is 0, then one less subPow is only needed, but this is not exploited now*/\
         {\
             double gamma2 = 1-gamma;\
             /*This can be done on two arrays too, by swapping but we avoid it*/\

@@ -271,6 +271,7 @@ namespace RACE {
                 mpk_next_offset = subPow-1;\
                 BASE_PRECON_MPK_splitUL(U->diag[row]);\
             }\
+            /*This works only if initVec == 0*/\
             int startSubPow = 1;\
             int endSubPow = totSubPower-1;\
             preconInArray = gmresPolyPreconTmp;\
@@ -333,7 +334,7 @@ namespace RACE {
                         (*y)[0][row] = (*y)[0][row] + mod_inv*(*x)[next_offset][row];\
                         );\
             }\
-            else if((pow+arr_offset) < maxSteps)\
+            else /*if((pow+arr_offset) < maxSteps)*/\
             {\
                 BASE_GmresPolyPreconKernel_MPK_w_PRECON(_precon_,\
                         (*x)[next_offset][row] = (*x)[prev_offset][row] - mod_inv*(*x)[next_offset][row];\
