@@ -211,7 +211,8 @@ chebyshev_kernel_vector
   using Kokkos::Static;
   using Kokkos::Schedule;
   using Kokkos::TeamPolicy;
-  using policy_type_dynamic = TeamPolicy<execution_space, Schedule<Dynamic> >;
+  //using policy_type_dynamic = TeamPolicy<execution_space, Schedule<Dynamic> >;
+  using policy_type_dynamic = TeamPolicy<execution_space, Schedule<Static> >; //CA: keeping it static always, dynamic has huge overhead for well-behaved matrices. Is there something like Guided or something?
   using policy_type_static = TeamPolicy<execution_space, Schedule<Static> >;
   const char kernel_label[] = "chebyshev_kernel_vector";
   policy_type_dynamic policyDynamic (1, 1);
