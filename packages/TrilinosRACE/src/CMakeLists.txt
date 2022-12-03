@@ -1,7 +1,5 @@
 INCLUDE(TrilinosCreateClientTemplateHeaders)
 
-enable_language(CXX)
-
 # Function to generate ETI (explicit template instantiation) files
 # from a template and list of class names
 #FUNCTION(TrillinosRACE_PROCESS_ETI_TEMPLATE ETI_CLASSES TEMPLATE_FILE PROCESSED_FILE SOURCES_LIST)
@@ -200,8 +198,8 @@ APPEND_SET(HEADERS ${DIR}/${PACKAGE_NAME}_config.h )
 #APPEND_SET(HEADERS ${DIR}/${PACKAGE_NAME}_ETIHelperMacros.h )
 
 
-#TRIBITS_ADD_LIBRARY(
-#  TrillinosRACE
-#  HEADERS ${HEADERS}
-#  SOURCES ${SOURCES} #${TrillinosRACE_CPP_SOURCES}
-#  )
+TRIBITS_ADD_LIBRARY(
+  TrillinosRACE
+  HEADERS ${HEADERS}
+  SOURCES ${SOURCES} #${TrillinosRACE_CPP_SOURCES}
+  )
