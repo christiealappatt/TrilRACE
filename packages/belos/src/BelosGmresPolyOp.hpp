@@ -396,7 +396,7 @@ namespace Belos {
     {
       //const GmresPolyMv<ScalarType,MV>& x_in = dynamic_cast<const GmresPolyMv<ScalarType,MV>&>(x);
       //GmresPolyMv<ScalarType,MV>& y_in = dynamic_cast<GmresPolyMv<ScalarType,MV>&>(y);
-      ApplyPoly( x, y); //*(x_in.getConstMV()), *(y_in.getMV()) ); 
+      ApplyPoly( x, y); // *(x_in.getConstMV()), *(y_in.getMV()) ); 
     }
     int polyDegree() const { return dim_; }
 
@@ -1498,7 +1498,7 @@ template <class ScalarType, class MV, class OP>
     //@} 
 
     //! @name Operator application method
-    //@{ 
+    //@{ }
     
     /*! \brief This routine takes the MV \c x and applies the polynomial 
         operator \c phi(OP) to it resulting in the MV \c y, which is returned.
