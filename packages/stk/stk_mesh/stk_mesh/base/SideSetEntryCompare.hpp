@@ -48,10 +48,11 @@ namespace mesh
 class SideSetEntryLess
 {
 public:
+    SideSetEntryLess();
     SideSetEntryLess(const BulkData& mesh);
     bool operator()(const SideSetEntry& lhs, const SideSetEntry& rhs) const;
 private:
-  const BulkData& m_mesh;
+  const BulkData* m_mesh;
 };
 
 class SideSetEntryEquals
@@ -60,20 +61,23 @@ public:
     SideSetEntryEquals(const BulkData& mesh);
     bool operator()(const SideSetEntry& lhs, const SideSetEntry& rhs) const;
 private:
-  const BulkData& m_mesh;
+  const BulkData* m_mesh;
 };
 
 //////////////
 
 inline
-SideSetEntryLess::SideSetEntryLess(const BulkData& mesh) : m_mesh(mesh){}
+SideSetEntryLess::SideSetEntryLess() : m_mesh(nullptr){}
+
+inline
+SideSetEntryLess::SideSetEntryLess(const BulkData& mesh) : m_mesh(&mesh){}
 
 inline
 bool SideSetEntryLess::operator()(const SideSetEntry& lhs, const SideSetEntry& rhs) const
 {
-    if(m_mesh.identifier(lhs.element) < m_mesh.identifier(rhs.element))
+    if(m_mesh->identifier(lhs.element) < m_mesh->identifier(rhs.element))
         return true;
-    else if(m_mesh.identifier(lhs.element) > m_mesh.identifier(rhs.element))
+    else if(m_mesh->identifier(lhs.element) > m_mesh->identifier(rhs.element))
         return false;
     else
     {
@@ -86,12 +90,12 @@ bool SideSetEntryLess::operator()(const SideSetEntry& lhs, const SideSetEntry& r
 
 //////////////
 inline
-SideSetEntryEquals::SideSetEntryEquals(const BulkData& mesh) : m_mesh(mesh){}
+SideSetEntryEquals::SideSetEntryEquals(const BulkData& mesh) : m_mesh(&mesh){}
 
 inline
 bool SideSetEntryEquals::operator()(const SideSetEntry& lhs, const SideSetEntry& rhs) const
 {
-    if(m_mesh.identifier(lhs.element) == m_mesh.identifier(rhs.element) &&
+    if(m_mesh->identifier(lhs.element) == m_mesh->identifier(rhs.element) &&
             lhs.side == rhs.side)
         return true;
     return false;
