@@ -1013,6 +1013,17 @@
     </parameter>
 
     <parameter>
+      <name>keep data</name>
+      <type>string</type>
+      <default>"{}"</default>
+      <description>Keep a subset of the hierarchy data after the
+      hierarchy is constructed.  Use comma-seperated array in braces</description>
+      <visible>false</visible>
+      <comment-ML>not supported by ML</comment-ML>
+    </parameter>
+
+
+    <parameter>
       <name>print initial parameters</name>
       <type>bool</type>
       <default>true</default>
@@ -1038,6 +1049,14 @@
       <default>false</default>
       <MHD>true</MHD>
       <description>Use implicit transpose for the restriction operator.</description>
+      <comment-ML>not supported by ML</comment-ML>
+    </parameter>
+
+    <parameter>
+      <name>transfers: half precision</name>
+      <type>bool</type>
+      <default>false</default>
+      <description>Replace transfer operators P and R (if explicitely constructed) with half precision versions for the solve phase..</description>
       <comment-ML>not supported by ML</comment-ML>
     </parameter>
 
@@ -1538,6 +1557,16 @@ Only used when tentative: calculate qr is set to false.</description>
       <visible>false</visible>
     </parameter>
 
+
+     <parameter>
+      <name>repartition: use subcommunicators in place</name>
+      <type>bool</type>
+      <default>false</default>
+      <description>Instead of repartitioning, we just removeEmptyProcessesInPlace, using a map to provide the new communicator.</description>
+      <visible>false</visible>
+    </parameter>
+
+
     <parameter>
       <name>repartition: node repartition level</name>
       <type>int</type>
@@ -1861,7 +1890,12 @@ optimized neighbor discovery for Importer construction.</description>
       <description>Specifies the multigrid solver for the 22 block</description>
     </parameter>
 
-
+    <parameter>
+      <name>maxwell1: dump matrices</name>
+      <type>bool</type>
+      <default>false</default>
+      <description>Dump matrices to disk.</description>
+    </parameter>
   </maxwell1>
 
   <refmaxwell>

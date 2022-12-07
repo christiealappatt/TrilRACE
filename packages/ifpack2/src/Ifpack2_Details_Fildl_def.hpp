@@ -85,11 +85,10 @@ template<typename Scalar, typename LocalOrdinal, typename GlobalOrdinal, typenam
 void Fildl<Scalar, LocalOrdinal, GlobalOrdinal, Node>::
 initLocalPrec()
 {
-  auto nRows = this->mat_->getNodeNumRows();
+  auto nRows = this->mat_->getLocalNumRows();
   auto& p = this->params_;
-  localPrec_ = Teuchos::rcp(new LocalFILDL(this->localRowPtrs_, this->localColInds_, this->localValues_, nRows,
-        p.nFact, p.nTrisol, p.level, p.omega,
-        p.shift, p.guessFlag ? 1 : 0, p.blockSize));
+  localPrec_ = Teuchos::rcp(new LocalFILDL(this->localRowPtrs_, this->localColInds_, this->localValues_, nRows, p.standard_sptrsv,
+                                           p.nFact, p.nTrisol, p.level, p.omega, p.shift, p.guessFlag ? 1 : 0, p.blockSize));
   localPrec_->initialize();
   this->initTime_ = localPrec_->getInitializeTime();
 }
