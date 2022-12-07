@@ -2095,11 +2095,11 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
     solverParams->set ("Maximum Restarts", restartLength * maxIters);
     solverParams->set ("Orthogonalization", args.orthogonalizationMethod);
   }
-
+/*
   solverParams->set("Verbosity", 41);
   solverParams->set("Output Frequency", 1);
   solverParams->set("Output Style", 1);
-
+*/
   solverParams->set("Step Size", 4);
   solverParams->set("Max Orthogonalization Passes", 1);
   if( (solverType == "TPETRA GMRES S-STEP") && args.useRACEreordering) {
