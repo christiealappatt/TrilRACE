@@ -352,13 +352,18 @@ namespace RACE {
                 Teuchos::ArrayRCP<const Scalar> values;
 
                 //get matrix arrays
-                origA->getAllValues(rowPointers, columnIndices, values);
+                //origA->getAllValues(rowPointers, columnIndices, values); //deprecated
+                rowPointers = Kokkos::Compat::persistingView(origA->getLocalRowPtrsHost());
+                columnIndices = Kokkos::Compat::persistingView(origA->getLocalIndicesHost());
+                values = Teuchos::arcp_reinterpret_cast<const Scalar>(
+                        Kokkos::Compat::persistingView(origA->getLocalValuesHost(
+                                                        Tpetra::Access::ReadOnly)));
 
                 //TODO test for int overflow
                 //call race on rowPointers and colIndices
-                nrows = origA->getNodeNumRows();
-                ncols = origA->getNodeNumCols();
-                nnz = origA->getNodeNumEntries();
+                nrows = origA->getLocalNumRows();
+                ncols = origA->getLocalNumCols();
+                nnz = origA->getLocalNumEntries();
 
                 int eps=100;
                 if(nrows > std::numeric_limits<int>::max()-eps  || ncols > std::numeric_limits<int>::max()-eps)
@@ -432,7 +437,14 @@ namespace RACE {
                 permuteMatrix(perm, invPerm, true);
                // permuteMatrix(NULL, NULL, true);
 
-                permA->getAllValues(rowPointers, columnIndices, values);
+                //permA->getAllValues(rowPointers, columnIndices, values); //deprecated
+                rowPointers = Kokkos::Compat::persistingView(permA->getLocalRowPtrsHost());
+                columnIndices = Kokkos::Compat::persistingView(permA->getLocalIndicesHost());
+                values = Teuchos::arcp_reinterpret_cast<const Scalar>(
+                        Kokkos::Compat::persistingView(permA->getLocalValuesHost(
+                                Tpetra::Access::ReadOnly)));
+
+
 #ifdef HAVE_TrilinosRACE_DEBUG
                 printf("Permuted matrix generated\n");
 #endif

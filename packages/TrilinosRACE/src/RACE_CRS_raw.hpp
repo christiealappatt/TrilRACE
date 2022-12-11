@@ -85,11 +85,16 @@ namespace RACE {
                 diag = NULL;
                 if(A!=Teuchos::null)
                 {
-                    nrows = A->getNodeNumRows();
+                    nrows = A->getLocalNumRows();
                     Teuchos::ArrayRCP<const size_t> rowPointers;
                     Teuchos::ArrayRCP<const LocalOrdinal> columnIndices;
                     Teuchos::ArrayRCP<const Scalar> values;
-                    A->getAllValues(rowPointers, columnIndices, values);
+                    //A->getAllValues(rowPointers, columnIndices, values);//deprecated
+                    rowPointers = Kokkos::Compat::persistingView(A->getLocalRowPtrsHost());
+                    columnIndices = Kokkos::Compat::persistingView(A->getLocalIndicesHost());
+                    values = Teuchos::arcp_reinterpret_cast<const Scalar>(
+                        Kokkos::Compat::persistingView(A->getLocalValuesHost(
+                                                        Tpetra::Access::ReadOnly)));
                     rowPtr = rowPointers.getRawPtr();
                     col = columnIndices.getRawPtr();
                     val = values.getRawPtr();

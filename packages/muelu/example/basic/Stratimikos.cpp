@@ -445,8 +445,8 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib lib, int arg
     }
 
     //find convergence and others
-    Teuchos::Array<typename STS::magnitudeType> norm_vec(numVectors);
-    STS::magnitudeType err_norm=0, res_norm=0, b_norm=0, x_norm;
+    Teuchos::Array<Scalar> norm_vec(numVectors);
+    Scalar err_norm=0, res_norm=0, b_norm=0, x_norm;
     RCP<MultiVector> res = Utilities::Residual(*A, *X, *B);
     res->norm2(norm_vec);
     for(int j=0; j<numVectors; ++j)
@@ -489,7 +489,7 @@ int main_(Teuchos::CommandLineProcessor &clp, Xpetra::UnderlyingLib lib, int arg
         << "  ||X-X_soln||_2: " << err_norm << endl
         << "  ||B||_2: " << b_norm << endl
         << "  ||X||_2: " << x_norm << endl;
-    if (b_norm != Kokkos::ArithTraits<STS::magnitudeType>::zero ()) {
+    if (b_norm != Kokkos::ArithTraits<Scalar>::zero ()) {
         cout << "  ||B-A*X||_2 / ||B||_2: " << (res_norm / b_norm)
             << endl;
     }
