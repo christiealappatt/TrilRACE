@@ -63,12 +63,14 @@ namespace Experimental {
 template <class IlukHandle, class RowMapType, class EntriesType,
           class LevelType1, class LevelType2, class size_type>
 void level_sched(IlukHandle& thandle, const RowMapType row_map,
-                 const EntriesType entries, const size_type nrows,
-                 LevelType1& level_list, LevelType2& level_ptr,
-                 LevelType2& level_idx, size_type& nlevels) {
+                 const EntriesType entries, LevelType1& level_list,
+                 LevelType2& level_ptr, LevelType2& level_idx,
+                 size_type& nlevels) {
   // Scheduling currently compute on host
 
-  typedef typename IlukHandle::nnz_lno_t nnz_lno_t;
+  using nnz_lno_t = typename IlukHandle::nnz_lno_t;
+
+  size_type nrows = thandle.get_nrows();
 
   nlevels      = 0;
   level_ptr(0) = 0;
@@ -115,6 +117,102 @@ void level_sched(IlukHandle& thandle, const RowMapType row_map,
 
   thandle.set_num_levels(nlevels);
   thandle.set_level_maxrows(maxrows);
+}
+
+// SEQLVLSCHD_TP1 algorithm (chunks)
+template <class IlukHandle, class RowMapType, class EntriesType,
+          class LevelType1, class LevelType2, class size_type>
+void level_sched_tp(IlukHandle& thandle, const RowMapType row_map,
+                    const EntriesType entries, LevelType1& level_list,
+                    LevelType2& level_ptr, LevelType2& level_idx,
+                    size_type& nlevels) {
+  // Scheduling currently compute on host
+
+  using nnz_lno_t           = typename IlukHandle::nnz_lno_t;
+  using nnz_lno_view_host_t = typename IlukHandle::nnz_lno_view_host_t;
+
+  size_type nrows = thandle.get_nrows();
+
+  nlevels      = 0;
+  level_ptr(0) = 0;
+
+  for (size_type i = 0; i < nrows; ++i) {
+    size_type l        = 0;
+    size_type rowstart = row_map(i);
+    size_type rowend   = row_map(i + 1);
+    for (size_type j = rowstart; j < rowend; ++j) {
+      nnz_lno_t col = entries(j);
+      l             = std::max(l, level_list(col));
+    }
+    level_list(i) = l + 1;
+    level_ptr(l + 1) += 1;
+    nlevels = std::max(nlevels, l + 1);
+  }
+
+  for (size_type i = 1; i <= nlevels; ++i) {
+    level_ptr(i) += level_ptr(i - 1);
+  }
+
+  for (size_type i = 0; i < nrows; i++) {
+    level_idx(level_ptr(level_list(i) - 1)) = i;
+    level_ptr(level_list(i) - 1) += 1;
+  }
+
+  if (nlevels > 0) {  // note: to avoid wrapping around to the max of size_t
+                      // when nlevels = 0.
+    for (size_type i = nlevels - 1; i > 0; --i) {
+      level_ptr(i) = level_ptr(i - 1);
+    }
+  }
+
+  level_ptr(0) = 0;
+
+  // Find max rows, number of chunks, max rows of chunks across levels
+  thandle.alloc_level_nchunks(nlevels);
+  thandle.alloc_level_nrowsperchunk(nlevels);
+  nnz_lno_view_host_t lnchunks       = thandle.get_level_nchunks();
+  nnz_lno_view_host_t lnrowsperchunk = thandle.get_level_nrowsperchunk();
+
+#ifdef KOKKOS_ENABLE_CUDA
+  using memory_space = typename IlukHandle::memory_space;
+  size_t avail_byte  = 0;
+  if (std::is_same<memory_space, Kokkos::CudaSpace>::value) {
+    size_t free_byte, total_byte;
+    KokkosKernels::Impl::kk_get_free_total_memory<memory_space>(free_byte,
+                                                                total_byte);
+    avail_byte = static_cast<size_t>(0.85 * free_byte);
+  }
+#endif
+
+  size_type maxrows         = 0;
+  size_type maxrowsperchunk = 0;
+  for (size_type i = 0; i < nlevels; ++i) {
+    size_type lnrows = level_ptr(i + 1) - level_ptr(i);
+    if (maxrows < lnrows) {
+      maxrows = lnrows;
+    }
+#ifdef KOKKOS_ENABLE_CUDA
+    size_t required_size =
+        static_cast<size_t>(lnrows) * nrows * sizeof(nnz_lno_t);
+    if (std::is_same<memory_space, Kokkos::CudaSpace>::value) {
+      lnchunks(i)       = required_size / avail_byte + 1;
+      lnrowsperchunk(i) = (lnrows % lnchunks(i) == 0)
+                              ? (lnrows / lnchunks(i))
+                              : (lnrows / lnchunks(i) + 1);
+    } else
+#endif
+    {
+      lnchunks(i)       = 1;
+      lnrowsperchunk(i) = lnrows;
+    }
+    if (maxrowsperchunk < static_cast<size_type>(lnrowsperchunk(i))) {
+      maxrowsperchunk = lnrowsperchunk(i);
+    }
+  }
+
+  thandle.set_num_levels(nlevels);
+  thandle.set_level_maxrows(maxrows);
+  thandle.set_level_maxrowsperchunk(maxrowsperchunk);
 }
 
 // Linear Search for the smallest row index
@@ -166,11 +264,11 @@ void iluk_symbolic(IlukHandle& thandle,
     // Scheduling and symbolic phase currently compute on host - need host copy
     // of all views
 
-    typedef typename IlukHandle::size_type size_type;
-    typedef typename IlukHandle::nnz_lno_t nnz_lno_t;
+    using size_type = typename IlukHandle::size_type;
+    using nnz_lno_t = typename IlukHandle::nnz_lno_t;
 
-    typedef typename IlukHandle::nnz_lno_view_t HandleDeviceEntriesType;
-    typedef typename IlukHandle::nnz_row_view_t HandleDeviceRowMapType;
+    using HandleDeviceEntriesType = typename IlukHandle::nnz_lno_view_t;
+    using HandleDeviceRowMapType  = typename IlukHandle::nnz_row_view_t;
 
     // typedef typename IlukHandle::signed_integral_t signed_integral_t;
 
@@ -217,8 +315,8 @@ void iluk_symbolic(IlukHandle& thandle,
     // Can only resize managed views Kokkos::resize(L_entries_d,
     // L_entries_d.extent(0)-3); thandle.set_nnzL(L_entries_d.extent(0)+5);
 
-    typedef Kokkos::View<nnz_lno_t*, Kokkos::LayoutLeft, Kokkos::HostSpace>
-        HostTmpViewType;
+    using HostTmpViewType =
+        Kokkos::View<nnz_lno_t*, Kokkos::LayoutLeft, Kokkos::HostSpace>;
 
     HostTmpViewType h_lev("h_lev", thandle.get_nnzU());
     HostTmpViewType h_iw("h_iw", nrows);
@@ -367,8 +465,25 @@ void iluk_symbolic(IlukHandle& thandle,
     }
 
     // Level scheduling on L
-    level_sched(thandle, L_row_map, L_entries, nrows, level_list, level_ptr,
-                level_idx, nlev);
+    if (thandle.get_algorithm() ==
+        KokkosSparse::Experimental::SPILUKAlgorithm::SEQLVLSCHD_TP1) {
+      level_sched_tp(thandle, L_row_map, L_entries, level_list, level_ptr,
+                     level_idx, nlev);
+      thandle.alloc_iw(thandle.get_level_maxrowsperchunk(), nrows);
+    } else {
+      level_sched(thandle, L_row_map, L_entries, level_list, level_ptr,
+                  level_idx, nlev);
+      thandle.alloc_iw(thandle.get_level_maxrows(), nrows);
+    }
+
+    Kokkos::deep_copy(dlevel_ptr, level_ptr);
+    Kokkos::deep_copy(dlevel_idx, level_idx);
+    Kokkos::deep_copy(dlevel_list, level_list);
+
+    Kokkos::deep_copy(L_row_map_d, L_row_map);
+    Kokkos::deep_copy(L_entries_d, L_entries);
+    Kokkos::deep_copy(U_row_map_d, U_row_map);
+    Kokkos::deep_copy(U_entries_d, U_entries);
 
     thandle.set_symbolic_complete();
 
@@ -378,8 +493,10 @@ void iluk_symbolic(IlukHandle& thandle,
     std::cout << "  symbolic complete: " << thandle.is_symbolic_complete()
               << std::endl;
     std::cout << "  num levels: " << thandle.get_num_levels() << std::endl;
-    std::cout << "  max num rows levels: " << thandle.get_level_maxrows()
+    std::cout << "  max num rows among levels: " << thandle.get_level_maxrows()
               << std::endl;
+    std::cout << "  max num rows among chunks among levels: "
+              << thandle.get_level_maxrowsperchunk() << std::endl;
 
     std::cout << "  iluk_symbolic result: " << std::endl;
 
@@ -427,15 +544,6 @@ void iluk_symbolic(IlukHandle& thandle,
     }
     std::cout << std::endl;
 #endif
-
-    Kokkos::deep_copy(dlevel_ptr, level_ptr);
-    Kokkos::deep_copy(dlevel_idx, level_idx);
-    Kokkos::deep_copy(dlevel_list, level_list);
-
-    Kokkos::deep_copy(L_row_map_d, L_row_map);
-    Kokkos::deep_copy(L_entries_d, L_entries);
-    Kokkos::deep_copy(U_row_map_d, U_row_map);
-    Kokkos::deep_copy(U_entries_d, U_entries);
   }
 }  // end iluk_symbolic
 

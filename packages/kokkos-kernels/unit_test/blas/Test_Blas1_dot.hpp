@@ -111,6 +111,7 @@ void impl_test_dot_mv(int N, int K) {
   Kokkos::View<ScalarB*, Kokkos::HostSpace> r("Dot::Result", K);
 
   KokkosBlas::dot(r, a, b);
+  Kokkos::fence();
   for (int k = 0; k < K; k++) {
     ScalarA nonconst_nonconst_result = r(k);
     EXPECT_NEAR_KK(nonconst_nonconst_result, expected_result[k],
@@ -118,6 +119,7 @@ void impl_test_dot_mv(int N, int K) {
   }
 
   KokkosBlas::dot(r, c_a, c_b);
+  Kokkos::fence();
   for (int k = 0; k < K; k++) {
     ScalarA const_const_result = r(k);
     EXPECT_NEAR_KK(const_const_result, expected_result[k],
@@ -125,6 +127,7 @@ void impl_test_dot_mv(int N, int K) {
   }
 
   KokkosBlas::dot(r, a, c_b);
+  Kokkos::fence();
   for (int k = 0; k < K; k++) {
     ScalarA non_const_const_result = r(k);
     EXPECT_NEAR_KK(non_const_const_result, expected_result[k],
@@ -132,6 +135,7 @@ void impl_test_dot_mv(int N, int K) {
   }
 
   KokkosBlas::dot(r, c_a, b);
+  Kokkos::fence();
   for (int k = 0; k < K; k++) {
     ScalarA const_non_const_result = r(k);
     EXPECT_NEAR_KK(const_non_const_result, expected_result[k],
@@ -196,6 +200,7 @@ int test_dot_mv() {
   Test::impl_test_dot_mv<view_type_a_ll, view_type_b_ll, Device>(0, 5);
   Test::impl_test_dot_mv<view_type_a_ll, view_type_b_ll, Device>(13, 5);
   Test::impl_test_dot_mv<view_type_a_ll, view_type_b_ll, Device>(1024, 5);
+  Test::impl_test_dot_mv<view_type_a_ll, view_type_b_ll, Device>(789, 1);
   // Test::impl_test_dot_mv<view_type_a_ll, view_type_b_ll, Device>(132231,5);
 #endif
 
@@ -207,6 +212,7 @@ int test_dot_mv() {
   Test::impl_test_dot_mv<view_type_a_lr, view_type_b_lr, Device>(0, 5);
   Test::impl_test_dot_mv<view_type_a_lr, view_type_b_lr, Device>(13, 5);
   Test::impl_test_dot_mv<view_type_a_lr, view_type_b_lr, Device>(1024, 5);
+  Test::impl_test_dot_mv<view_type_a_lr, view_type_b_lr, Device>(789, 1);
   // Test::impl_test_dot_mv<view_type_a_lr, view_type_b_lr, Device>(132231,5);
 #endif
 
@@ -218,6 +224,7 @@ int test_dot_mv() {
   Test::impl_test_dot_mv<view_type_a_ls, view_type_b_ls, Device>(0, 5);
   Test::impl_test_dot_mv<view_type_a_ls, view_type_b_ls, Device>(13, 5);
   Test::impl_test_dot_mv<view_type_a_ls, view_type_b_ls, Device>(1024, 5);
+  Test::impl_test_dot_mv<view_type_a_ls, view_type_b_ls, Device>(789, 1);
   // Test::impl_test_dot_mv<view_type_a_ls, view_type_b_ls, Device>(132231,5);
 #endif
 

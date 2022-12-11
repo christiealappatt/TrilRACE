@@ -344,14 +344,6 @@ private:
   static constexpr int tunedPowerRACE_default_ = 1;
 #endif
 
-  // https://stackoverflow.com/questions/24398102/constexpr-and-initialization-of-a-static-const-void-pointer-with-reinterpret-cas
-#if defined(_WIN32) && defined(__clang__)
-    static constexpr std::ostream * outputStream_default_ =
-       __builtin_constant_p(reinterpret_cast<const std::ostream*>(&std::cout));
-#else
-    static constexpr std::ostream * outputStream_default_ = &std::cout;
-#endif
-
   // Current solver values.
   MagnitudeType polyTol_, achievedTol_;
   int maxDegree_, numIters_;
@@ -389,7 +381,7 @@ private:
 
 template<class ScalarType, class MV, class OP>
 GmresPolySolMgr<ScalarType,MV,OP>::GmresPolySolMgr () :
-  outputStream_ (Teuchos::rcp(outputStream_default_,false)),
+  outputStream_ (Teuchos::rcpFromRef(std::cout)),
   polyTol_ (DefaultSolverParameters::polyTol),
   achievedTol_(MTS::zero()),
   maxDegree_ (maxDegree_default_),
@@ -420,7 +412,7 @@ GmresPolySolMgr<ScalarType,MV,OP>::
 GmresPolySolMgr (const Teuchos::RCP<LinearProblem<ScalarType,MV,OP> > &problem,
                  const Teuchos::RCP<Teuchos::ParameterList> &pl) :
   problem_ (problem),
-  outputStream_ (Teuchos::rcp(outputStream_default_,false)),
+  outputStream_ (Teuchos::rcpFromRef(std::cout)),
   polyTol_ (DefaultSolverParameters::polyTol),
   maxDegree_ (maxDegree_default_),
   numIters_ (0),
@@ -479,7 +471,7 @@ GmresPolySolMgr<ScalarType,MV,OP>::getValidParameters() const
     pl->set("Verbosity", static_cast<int>(verbosity_default_),
       "What type(s) of solver information should be outputted\n"
       "to the output stream.");
-    pl->set("Output Stream", Teuchos::rcp(outputStream_default_,false),
+    pl->set("Output Stream", Teuchos::rcpFromRef(std::cout),
       "A reference-counted pointer to the output stream where all\n"
       "solver output is sent.");
     pl->set("Timer Label", static_cast<const char *>(label_default_),

@@ -98,6 +98,7 @@ void impl_test_nrm1_mv(int N, int K) {
 
   KokkosBlas::nrm1(r, a);
   KokkosBlas::nrm1(c_r, a);
+  Kokkos::fence();
   for (int k = 0; k < K; k++) {
     EXPECT_NEAR_KK(r(k), expected_result(k), eps * expected_result(k));
     EXPECT_NEAR_KK(c_r(k), expected_result(k), eps * expected_result(k));
@@ -149,6 +150,7 @@ int test_nrm1_mv() {
   Test::impl_test_nrm1_mv<view_type_a_ll, Device>(0, 5);
   Test::impl_test_nrm1_mv<view_type_a_ll, Device>(13, 5);
   Test::impl_test_nrm1_mv<view_type_a_ll, Device>(1024, 5);
+  Test::impl_test_nrm1_mv<view_type_a_ll, Device>(789, 1);
   Test::impl_test_nrm1_mv<view_type_a_ll, Device>(132231, 5);
 #endif
 
@@ -159,6 +161,7 @@ int test_nrm1_mv() {
   Test::impl_test_nrm1_mv<view_type_a_lr, Device>(0, 5);
   Test::impl_test_nrm1_mv<view_type_a_lr, Device>(13, 5);
   Test::impl_test_nrm1_mv<view_type_a_lr, Device>(1024, 5);
+  Test::impl_test_nrm1_mv<view_type_a_lr, Device>(789, 1);
   Test::impl_test_nrm1_mv<view_type_a_lr, Device>(132231, 5);
 #endif
 
@@ -169,6 +172,7 @@ int test_nrm1_mv() {
   Test::impl_test_nrm1_mv<view_type_a_ls, Device>(0, 5);
   Test::impl_test_nrm1_mv<view_type_a_ls, Device>(13, 5);
   Test::impl_test_nrm1_mv<view_type_a_ls, Device>(1024, 5);
+  Test::impl_test_nrm1_mv<view_type_a_ls, Device>(789, 1);
   Test::impl_test_nrm1_mv<view_type_a_ls, Device>(132231, 5);
 #endif
 

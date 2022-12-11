@@ -93,6 +93,7 @@ void impl_test_nrm2_squared_mv(int N, int K) {
   Kokkos::View<typename AT::mag_type*, Kokkos::HostSpace> r("Dot::Result", K);
 
   KokkosBlas::nrm2_squared(r, a);
+  Kokkos::fence();
   for (int k = 0; k < K; k++) {
     typename AT::mag_type nonconst_result = r(k);
     typename AT::mag_type divisor =
@@ -103,6 +104,7 @@ void impl_test_nrm2_squared_mv(int N, int K) {
   }
 
   KokkosBlas::nrm2_squared(r, c_a);
+  Kokkos::fence();
   for (int k = 0; k < K; k++) {
     typename AT::mag_type const_result = r(k);
     typename AT::mag_type divisor =
@@ -160,6 +162,7 @@ int test_nrm2_squared_mv() {
   Test::impl_test_nrm2_squared_mv<view_type_a_ll, Device>(0, 5);
   Test::impl_test_nrm2_squared_mv<view_type_a_ll, Device>(13, 5);
   Test::impl_test_nrm2_squared_mv<view_type_a_ll, Device>(1024, 5);
+  Test::impl_test_nrm2_squared_mv<view_type_a_ll, Device>(789, 1);
   // Test::impl_test_nrm2_squared_mv<view_type_a_ll, Device>(132231,5);
 #endif
 
@@ -170,6 +173,7 @@ int test_nrm2_squared_mv() {
   Test::impl_test_nrm2_squared_mv<view_type_a_lr, Device>(0, 5);
   Test::impl_test_nrm2_squared_mv<view_type_a_lr, Device>(13, 5);
   Test::impl_test_nrm2_squared_mv<view_type_a_lr, Device>(1024, 5);
+  Test::impl_test_nrm2_squared_mv<view_type_a_lr, Device>(789, 1);
   // Test::impl_test_nrm2_squared_mv<view_type_a_lr, Device>(132231,5);
 #endif
 
@@ -180,6 +184,7 @@ int test_nrm2_squared_mv() {
   Test::impl_test_nrm2_squared_mv<view_type_a_ls, Device>(0, 5);
   Test::impl_test_nrm2_squared_mv<view_type_a_ls, Device>(13, 5);
   Test::impl_test_nrm2_squared_mv<view_type_a_ls, Device>(1024, 5);
+  Test::impl_test_nrm2_squared_mv<view_type_a_ls, Device>(789, 1);
   // Test::impl_test_nrm2_squared_mv<view_type_a_ls, Device>(132231,5);
 #endif
 

@@ -123,7 +123,8 @@ void DeviceBucket::update_from_host(const stk::mesh::Bucket &bucket)
 
   if (totalNumNodes != hostNodeConnectivity.size()) {
     nodeConnectivity = BucketConnectivityType(Kokkos::view_alloc(Kokkos::WithoutInitializing, "BucketConnectivity"), totalNumNodes);
-    hostNodeConnectivity = Kokkos::create_mirror_view(Kokkos::WithoutInitializing, Kokkos::HostSpace(), nodeConnectivity);
+    hostNodeConnectivity =
+        Kokkos::create_mirror_view(Kokkos::WithoutInitializing, Kokkos::HostSpace(), nodeConnectivity);
   }
 
   if (maxNodesPerEntity != hostNodeOrdinals.size()) {
@@ -472,4 +473,3 @@ void DeviceMesh::copy_volatile_fast_shared_comm_map_to_device()
 
 }
 }
-
