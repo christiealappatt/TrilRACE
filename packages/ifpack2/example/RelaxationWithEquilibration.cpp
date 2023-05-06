@@ -44,6 +44,10 @@
 #include <memory> // std::unique_ptr
 #include <sstream>
 #include <tuple>
+#define LIKWID_PERFMON
+#ifdef LIKWID_PERFMON
+#include <likwid.h>
+#endif
 
 namespace { // (anonymous)
 
@@ -1595,6 +1599,7 @@ struct CmdLineArgs {
   std::string maxIterValues = "100";
   std::string restartLengthValues = "20";
   std::string preconditionerTypes = "RELAXATION";
+  std::string preconditionerSubType = "NONE";
   bool solverVerbose = false;
   bool equilibrate = false;
   bool assumeSymmetric = false;
@@ -1634,6 +1639,9 @@ getCmdLineArgs (CmdLineArgs& args, int argc, char* argv[])
                   "ignored otherwise)");
   cmdp.setOption ("preconditionerTypes", &args.preconditionerTypes,
                   "One or more Ifpack2 preconditioner types, "
+                  "separated by commas");
+  cmdp.setOption ("preconditionerSubType", &args.preconditionerSubType,
+                  "One or more Ifpack2 preconditioner sub types for RELAXATION preconditioner (e.g., Jacobi, Gauss-Seidel), "
                   "separated by commas");
   cmdp.setOption ("solverVerbose", "solverQuiet", &args.solverVerbose,
                   "Whether the Belos solver should print verbose output");
@@ -2019,6 +2027,7 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
                 MultiVectorType& B,
                 const std::string& solverType,
                 /*const std::string& */ std::string precType,
+                /*const std::string& */ std::string precSubType,
                 const typename MultiVectorType::mag_type convergenceTolerance,
                 const int maxIters,
                 const int restartLength,
@@ -2060,7 +2069,14 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
   }
   else {
     if (precType == "RELAXATION") {
-      precParams->set ("relaxation: type", "Symmetric Gauss-Seidel");
+      if(precSubType == "NONE")
+      {
+          precParams->set ("relaxation: type", "Symmetric Gauss-Seidel");
+      }
+      else
+      {
+          precParams->set ("relaxation: type", precSubType);
+      }
     }
   }
 
@@ -2125,6 +2141,7 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
     cout << "Solver:" << endl
          << "  Solver type: " << solverType << endl
          << "  Preconditioner type: " << precType << endl
+         << "  Preconditioner sub type: " << precSubType << endl
          << "  Convergence tolerance: " << convergenceTolerance << endl
          << "  Maximum number of iterations: " << maxIters << endl;
     if (solverType == "GMRES") {
@@ -2157,6 +2174,11 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
 int
 main (int argc, char* argv[])
 {
+
+#ifdef LIKWID_PERFMON
+    LIKWID_MARKER_INIT;
+#endif
+
   using Teuchos::ParameterList;
   using Teuchos::RCP;
   using std::cerr;
@@ -2214,6 +2236,16 @@ main (int argc, char* argv[])
   else {
     preconditionerTypes = splitIntoStrings (args.preconditionerTypes);
   }
+
+  std::string preconditionerSubType;
+  if (args.preconditionerSubType == "") {
+    preconditionerSubType = {"NONE"};
+  }
+  else {
+    //preconditionerSubType = splitIntoStrings (args.preconditionerSubType);
+    preconditionerSubType = args.preconditionerSubType;
+  }
+
 
   std::vector<int> maxIterValues;
   if (args.maxIterValues == "") {
@@ -2545,24 +2577,32 @@ main (int argc, char* argv[])
   // Create the solver.
   BelosIfpack2Solver<crs_matrix_type> solver (A);
 
+  std::string precSubType = preconditionerSubType;
   // Solve the linear system using various solvers and preconditioners.
   for (std::string solverType : solverTypes) {
-    for (std::string precType : preconditionerTypes) {
-      for (int maxIters : maxIterValues) {
-        for (int restartLength : restartLengthValues) {
-          for (double convTol : convergenceToleranceValues) {
-            solveAndReport (solver, *A_original, *X, *B,
-                            solverType,
-                            precType,
-                            convTol,
-                            maxIters,
-                            restartLength,
-                            args);
+      for (std::string precType : preconditionerTypes) {
+          for (int maxIters : maxIterValues) {
+              for (int restartLength : restartLengthValues) {
+                  for (double convTol : convergenceToleranceValues) {
+                      solveAndReport (solver, *A_original, *X, *B,
+                              solverType,
+                              precType,
+                              precSubType,
+                              convTol,
+                              maxIters,
+                              restartLength,
+                              args);
+                      Teuchos::TimeMonitor::summarize();
+                      Teuchos::TimeMonitor::zeroOutTimers();
+                  }
+              }
           }
-        }
       }
-    }
   }
+
+#ifdef LIKWID_PERFMON
+    LIKWID_MARKER_CLOSE;
+#endif
 
   return EXIT_SUCCESS;
 }
