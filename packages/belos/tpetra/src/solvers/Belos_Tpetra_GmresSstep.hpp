@@ -271,8 +271,11 @@ private:
 
     // timers
     Teuchos::RCP< Teuchos::Time > spmvTimer = Teuchos::TimeMonitor::getNewCounter ("GmresSstep::matrix-apply");
+    Teuchos::RCP< Teuchos::Time > preconTimer = Teuchos::TimeMonitor::getNewCounter ("GmresSstep::Precon-apply");
     Teuchos::RCP< Teuchos::Time > bortTimer = Teuchos::TimeMonitor::getNewCounter ("GmresSstep::BOrtho");
     Teuchos::RCP< Teuchos::Time > tsqrTimer = Teuchos::TimeMonitor::getNewCounter ("GmresSstep::TSQR");
+    Teuchos::RCP< Teuchos::Time > totalTimer = Teuchos::TimeMonitor::getNewCounter ("GmresSstep::total");
+    Teuchos::TimeMonitor GmresSstepTimer (*totalTimer);
 
     // initialize output parameters
     SolverOutput<SC> output {};
@@ -320,7 +323,10 @@ private:
     R.update (one, B, -one);
     b0_norm = R.norm2 (); // initial residual norm, not preconditioned
     if (input.precoSide == "left") {
-      M.apply (R, P0);
+        {
+          Teuchos::TimeMonitor LocalTimer (*preconTimer);
+          M.apply (R, P0);
+        }
       r_norm = P0.norm2 (); // initial residual norm, left-preconditioned
     } else {
       r_norm = b0_norm;
@@ -369,7 +375,10 @@ private:
       }
 
       if (input.precoSide == "left") {
-        M.apply (R, P0);
+          {
+            Teuchos::TimeMonitor LocalTimer (*preconTimer);
+            M.apply (R, P0);
+          }
         r_norm = P0.norm2 (); // residual norm
       }
       else {
@@ -423,7 +432,10 @@ private:
             A.apply (P, AP);
           }
           else if (input.precoSide == "right") {
-            M.apply (P, MP);
+              {
+                Teuchos::TimeMonitor LocalTimer (*preconTimer);
+                M.apply (P, MP);
+              }
             {
               Teuchos::TimeMonitor LocalTimer (*spmvTimer);
               A.apply (MP, AP);
@@ -434,7 +446,10 @@ private:
               Teuchos::TimeMonitor LocalTimer (*spmvTimer);
               A.apply (P, MP);
             }
-            M.apply (MP, AP);
+            {
+              Teuchos::TimeMonitor LocalTimer (*preconTimer);
+                M.apply (MP, AP);
+            }
           }
           // Shift for Newton basis
           if ( int (output.ritzValues.size()) > step) {
@@ -545,7 +560,10 @@ private:
       dense_vector_type y_iter (Teuchos::View, y.values (), iter);
       if (input.precoSide == "right") {
         MVT::MvTimesMatAddMv (one, *Qj, y_iter, zero, R);
-        M.apply (R, MP);
+        {
+          Teuchos::TimeMonitor LocalTimer (*preconTimer);
+            M.apply (R, MP);
+        }
         X.update (one, MP, one);
       }
       else {
@@ -583,7 +601,11 @@ private:
           iter = 0;
           P0 = * (Q.getVectorNonConst (0));
           if (input.precoSide == "left") { // left-precond'd residual norm
-            M.apply (R, P0);
+
+              {
+                Teuchos::TimeMonitor LocalTimer (*preconTimer);
+                M.apply (R, P0);
+              }
             r_norm = P0.norm2 ();
           }
           else {
