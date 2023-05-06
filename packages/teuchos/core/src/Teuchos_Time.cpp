@@ -43,6 +43,10 @@
 // 07.08.03 -- Move into Teuchos package/namespace
 
 #include "Teuchos_Time.hpp"
+#ifdef LIKWID_PERFMON
+#include <likwid.h>
+#endif
+
 
 #if defined(__INTEL_COMPILER) && defined(_WIN32)
 
@@ -108,6 +112,12 @@ Time::Time(const std::string& name_in, bool start_in)
 #ifdef HAVE_TEUCHOS_TIME_MASSIF_SNAPSHOTS
   numCallsMassifSnapshots_ = 0;
 #endif
+#ifdef LIKWID_PERFMON
+#pragma omp parallel
+  {
+    LIKWID_MARKER_REGISTER(name_.c_str());
+  }
+#endif
 }
 
 void Time::start(bool reset_in)
@@ -125,6 +135,12 @@ void Time::start(bool reset_in)
     }
 #endif
     startTime_ = wallTime();
+#ifdef LIKWID_PERFMON
+#pragma omp parallel
+    {
+      LIKWID_MARKER_START(name_.c_str());
+    }
+#endif
 #if defined(HAVE_TEUCHOS_KOKKOS_PROFILING) && defined(HAVE_TEUCHOSCORE_KOKKOSCORE)
     ::Kokkos::Profiling::pushRegion (name_);
 #endif
@@ -146,6 +162,12 @@ double Time::stop()
         std::string cmd = "snapshot " + filename;
         VALGRIND_MONITOR_COMMAND(cmd.data());
         numCallsMassifSnapshots_++;
+      }
+#endif
+#ifdef LIKWID_PERFMON
+#pragma omp parallel
+      {
+        LIKWID_MARKER_STOP(name_.c_str());
       }
 #endif
 #if defined(HAVE_TEUCHOS_KOKKOS_PROFILING) && defined(HAVE_TEUCHOSCORE_KOKKOSCORE)

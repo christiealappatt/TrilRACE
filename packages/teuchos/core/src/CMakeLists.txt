@@ -100,6 +100,18 @@ IF (CMAKE_CXX_COMPILER_ID STREQUAL GNU)
     )
 ENDIF()
 
+set(USE_LIKWID 0 CACHE BOOL "Use LIKWID for performance counter measurement")
+
+#likwid library
+if(USE_LIKWID)
+    link_directories($ENV{LIKWID_LIBDIR})
+    link_libraries(liblikwid.so)
+    include_directories($ENV{LIKWID_INCDIR})
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DLIKWID_PERFMON")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DLIKWID_PERFMON")
+endif()
+
+
 TRIBITS_ADD_LIBRARY(
   teuchoscore
   HEADERS ${HEADERS}
