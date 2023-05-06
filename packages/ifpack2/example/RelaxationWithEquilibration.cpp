@@ -1601,6 +1601,7 @@ struct CmdLineArgs {
   std::string preconditionerTypes = "NONE";
   std::string preconditionerSubType = "NONE";
   std::string preconditionerInnerSweep = "1";
+  std::string preconditionerOuterSweep = "1";
   std::string preconditionerInnerDamping = "1";
   bool solverVerbose = false;
   bool equilibrate = false;
@@ -1646,11 +1647,13 @@ getCmdLineArgs (CmdLineArgs& args, int argc, char* argv[])
   cmdp.setOption ("preconditionerTypes", &args.preconditionerTypes,
                   "One or more Ifpack2 preconditioner types, "
                   "separated by commas");
+  cmdp.setOption ("preconditionerOuterSweep", &args.preconditionerOuterSweep,
+                  "Outer sweeps in Relaxation preconditioners");
   cmdp.setOption ("preconditionerSubType", &args.preconditionerSubType,
                   "One Ifpack2 (or RACE) preconditioner sub type (Jacobi, Gauss-Seidel, ...)");
   cmdp.setOption ("preconditionerInnerSweep", &args.preconditionerInnerSweep,
                   "Inner sweeps in two-stage GS preconditioners");
-  cmdp.setOption ("preconditionerInnerDamping", &args.preconditionerInnerDamping,
+ cmdp.setOption ("preconditionerInnerDamping", &args.preconditionerInnerDamping,
                   "Inner damping for two-stage GS preconditioners");
   cmdp.setOption ("solverVerbose", "solverQuiet", &args.solverVerbose,
                   "Whether the Belos solver should print verbose output");
@@ -2066,6 +2069,7 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
                 MultiVectorType& B,
                 const std::string& solverType,
                 /*const std::string& */ std::string precType,
+                int precOuterSweep,
                 /*const std::string& */ std::string precSubType,
                 int precInnerSweep,
                 double precInnerDamping,
@@ -2133,8 +2137,13 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
       //precParams->set ("relaxation: check diagonal entries", true);
       if((precSubType == "Two-stage Gauss-Seidel") || (precSubType == "Two-stage Symmetric Gauss-Seidel"))
       {
+          precParams->set ("relaxation: outer sweeps", precOuterSweep);
           precParams->set ("relaxation: inner sweeps", precInnerSweep);
           precParams->set("relaxation: inner damping factor", precInnerDamping);
+      }
+      else
+      {
+          precParams->set ("relaxation: sweeps", precOuterSweep);
       }
     }
     else if(precType == "RILUK") {
@@ -2148,6 +2157,13 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
         //CA:use ShyLU since this is as for my experiment with G3_circuit the fastest parallel, surprised to see no where in Ifpack2 it is mentioned how to activate it
         precParams->set("trisolver: type", "HTS");
     }
+    /*else if(precType == "CHEBYSHEV") {
+        if(precSubType != "NONE")
+        {
+            precParams->set("chebyshev: max eigenvalue", atof(precSubType.c_str()));
+            precParams->set("chebyshev: min eigenvalue", 1.0);
+        }
+    }*/
   }
 #ifdef BELOS_TEUCHOS_TIME_MONITOR
   Teuchos::RCP<Teuchos::Time> precSetTime;
@@ -2348,6 +2364,15 @@ main (int argc, char* argv[])
   else {
     preconditionerSubType = args.preconditionerSubType;
   }
+
+  int preconditionerOuterSweep;//for Relaxation precons
+  if(args.preconditionerOuterSweep == "") {
+      preconditionerOuterSweep = 1;
+  }
+  else {
+      preconditionerOuterSweep = atoi(args.preconditionerOuterSweep.c_str());
+  }
+
 
   int preconditionerInnerSweep;//for GS2 and SGS2
   if(args.preconditionerInnerSweep == "") {
@@ -2818,6 +2843,7 @@ main (int argc, char* argv[])
               solveAndReport (solver, *A_original, *X, *B,
                       solverType,
                       precType,
+                      preconditionerOuterSweep,
                       preconditionerSubType,
                       preconditionerInnerSweep,
                       preconditionerInnerDamping,

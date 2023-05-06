@@ -2092,7 +2092,8 @@ solveAndReport (BelosIfpack2Solver<CrsMatrixType>& solver,
   }
   solverParams->set("Polynomial Type", args.polynomialType);
   solverParams->set("Polynomial Tolerance", atof(args.polynomialTol.c_str()));
-  solverParams->set("Random RHS", false);//disable random RHS; remove uncertainity with number of threads
+  //solverParams->set("Random RHS", false);//disable random RHS; remove uncertainity with number of threads
+  solverParams->set("Random RHS", true);//disable random RHS; remove uncertainity with number of threads
   solverParams->set("Maximum Degree", atoi(args.polynomialDegree.c_str()));
   solverParams->set ("Num Blocks", restartLength);
   solverParams->set ("Maximum Restarts", restartLength * maxIters);
