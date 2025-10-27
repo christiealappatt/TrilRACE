@@ -416,8 +416,9 @@ namespace RACE {
 #endif
                 {
                     ce = new RACE::Interface(nrows, nthreads, RACE::POWER, rowPtr_int, col_int);
-                    int numSharedCache = 1; //currently try only this, and within one socket. Outside socket go MPI
-                    ce->RACEColor(highestPower, numSharedCache, cacheSize, 2, "N", preconPowerFactor);
+                    // int numSharedCache = 1; //currently try only this, and within one socket. Outside socket go MPI
+                    // ce->RACEColor(highestPower, numSharedCache, cacheSize, 2, "N", preconPowerFactor);
+                    ce->RACEColor(highestPower, cacheSize, 2, "N", preconPowerFactor);
 #ifdef BELOS_TEUCHOS_TIME_MONITOR
                     Teuchos::TimeMonitor updateTimer( *RACEPreTime);
 #endif

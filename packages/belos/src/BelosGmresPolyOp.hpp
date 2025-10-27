@@ -75,7 +75,11 @@
 #include "Teuchos_SerialDenseVector.hpp"
 #include "Teuchos_SerialDenseSolver.hpp"
 #include "Teuchos_ParameterList.hpp"
-#include <omp.h>
+
+// DL 27.10.2025 pretty sure this was leftover from testing
+// #include <omp.h>
+//
+
 #ifdef BELOS_TEUCHOS_TIME_MONITOR
   #include "Teuchos_TimeMonitor.hpp"
 #endif // BELOS_TEUCHOS_TIME_MONITOR
