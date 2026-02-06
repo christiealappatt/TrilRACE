@@ -101,13 +101,33 @@ namespace FROSch {
         } else if (!solverType.compare("FROSchPreconditioner")) {
             return FROSchPreconditionerPtr(new FROSchPreconditioner<SC,LO,GO,NO>(k,parameterList,description));
         } else if (!solverType.compare("Ifpack2")) {
+#ifndef USE_RACE
 #ifdef HAVE_SHYLU_DDFROSCH_IFPACK2
             FROSCH_ASSERT(k->getRowMap()->lib()==UseTpetra,"FROSch::SolverFactory: Ifpack2 is not compatible with Epetra.");
             return Ifpack2PreconditionerTpetraPtr(new Ifpack2PreconditionerTpetra<SC,LO,GO,NO>(k,parameterList,description));
 #else
             ThrowErrorMissingPackage("FROSch::SolverFactory","Ifpack2");
 #endif
-        } else if (!solverType.compare("MueLu")) {
+#endif
+        } 
+/////////////////////////////////////////////////////////////////////////////
+// DL 2026-02-06: Need to have both Ifpack2 and USE_RACE toggled from FROSch_SolverFactory_decl.hpp
+/////////////////////////////////////////////////////////////////////////////
+        else if (!solverType.compare("Ifpack2_RACE")) { // The "Ifpack2_RACE" name should come from xml file
+#ifdef USE_RACE
+#ifdef HAVE_SHYLU_DDFROSCH_IFPACK2
+            FROSCH_ASSERT(k->getRowMap()->lib()==UseTpetra,"FROSch::SolverFactory: Ifpack2_RACE is not compatible with Epetra.");
+            return Ifpack2RACEPreconditionerTpetraPtr(new Ifpack2RACEPreconditionerTpetra<SC,LO,GO,NO>(k,parameterList,description));
+#else
+            ThrowErrorMissingPackage("FROSch::SolverFactory","Ifpack2_RACE");
+#endif
+#else
+            std::cout << "Make sure USE_RACE is toggled in FROSch_SolverFactory_decl.hpp!" << std::endl;
+            exit(1);
+#endif
+        }
+/////////////////////////////////////////////////////////////////////////////
+        else if (!solverType.compare("MueLu")) {
 #ifdef HAVE_SHYLU_DDFROSCH_MUELU
             return MueLuPreconditionerPtr(new MueLuPreconditioner<SC,LO,GO,NO>(k,parameterList,description));
 #else

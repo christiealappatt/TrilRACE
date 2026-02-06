@@ -135,6 +135,8 @@ APPEND_SET(HEADERS
   SolverInterfaces/FROSch_FROSchPreconditioner_def.hpp
   SolverInterfaces/FROSch_Ifpack2PreconditionerTpetra_decl.hpp
   SolverInterfaces/FROSch_Ifpack2PreconditionerTpetra_def.hpp
+  SolverInterfaces/FROSch_Ifpack2RACEPreconditionerTpetra_decl.hpp
+  SolverInterfaces/FROSch_Ifpack2RACEPreconditionerTpetra_def.hpp
   SolverInterfaces/FROSch_MueLuPreconditioner_decl.hpp
   SolverInterfaces/FROSch_MueLuPreconditioner_def.hpp
   SolverInterfaces/FROSch_Solver_decl.hpp

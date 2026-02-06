@@ -44,6 +44,9 @@
 
 #include <ShyLU_DDFROSch_config.h>
 
+// DL 2026-02-06: Just for easy testing, but should be in CMakeLists
+#define USE_RACE
+
 // FROSch
 #include <FROSch_Solver_def.hpp>
 #if defined(HAVE_SHYLU_DDFROSCH_AMESOS) && defined(HAVE_SHYLU_DDFROSCH_EPETRA)
@@ -61,7 +64,12 @@
 #endif
 #include <FROSch_FROSchPreconditioner_def.hpp>
 #ifdef HAVE_SHYLU_DDFROSCH_IFPACK2
+#ifdef USE_RACE
+#include "RACE_frontend.hpp"
+#include <FROSch_Ifpack2RACEPreconditionerTpetra_def.hpp>
+#else
 #include <FROSch_Ifpack2PreconditionerTpetra_def.hpp>
+#endif
 #endif
 #ifdef HAVE_SHYLU_DDFROSCH_MUELU
 #include <FROSch_MueLuPreconditioner_def.hpp>
@@ -106,7 +114,11 @@ namespace FROSch {
 #endif
         using FROSchPreconditionerPtr           = RCP<FROSchPreconditioner<SC,LO,GO,NO> >;
 #ifdef HAVE_SHYLU_DDFROSCH_IFPACK2
+#ifdef USE_RACE
+        using Ifpack2RACEPreconditionerTpetraPtr    = RCP<Ifpack2RACEPreconditionerTpetra<SC,LO,GO,NO> >;
+#else
         using Ifpack2PreconditionerTpetraPtr    = RCP<Ifpack2PreconditionerTpetra<SC,LO,GO,NO> >;
+#endif
 #endif
 #ifdef HAVE_SHYLU_DDFROSCH_MUELU
         using MueLuPreconditionerPtr            = RCP<MueLuPreconditioner<SC,LO,GO,NO> >;
