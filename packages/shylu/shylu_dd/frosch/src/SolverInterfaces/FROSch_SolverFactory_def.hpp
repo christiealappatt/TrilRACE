@@ -122,6 +122,7 @@ namespace FROSch {
             ThrowErrorMissingPackage("FROSch::SolverFactory","Ifpack2_RACE");
 #endif
 #else
+            std::cout << "Ifpack2_RACE requested, but not found" << std::endl;
             std::cout << "Make sure USE_RACE is toggled in FROSch_SolverFactory_decl.hpp!" << std::endl;
             exit(1);
 #endif

@@ -93,6 +93,11 @@ namespace FROSch {
         using Ifpack2RACEPreconditionerPtr          = RCP<Ifpack2::Preconditioner<SC,LO,GO,NO> >;
         using TRowMatrixFilterType              = Ifpack2::ReorderFilter<TRowMatrix>;
 
+#ifdef USE_RACE
+        using crs_matrix_type = Tpetra::CrsMatrix<>;
+        using RACE_type = RACE::frontend<crs_matrix_type::scalar_type, crs_matrix_type::local_ordinal_type,crs_matrix_type::global_ordinal_type, crs_matrix_type::node_type>;
+#endif
+
     public:
 
         //! Initialize the internal solver
@@ -132,6 +137,15 @@ namespace FROSch {
         bool needToApplyPerm;
         Teuchos::ArrayRCP<LO>    perm;
         Teuchos::ArrayRCP<LO>    revperm;
+        // Added by Dane 17.02.2026
+#ifdef USE_RACE
+        Teuchos::ParameterList Ifpack2Params_;
+        std::string Ifpack2Type_;
+        Teuchos::RCP<RACE_type> race_;
+        mutable Teuchos::RCP<Tpetra::MultiVector<SC,LO,GO,NO>> raceXwork_;
+        mutable Teuchos::RCP<Tpetra::MultiVector<SC,LO,GO,NO>> raceYwork_;
+#endif
+        //
 
         friend class SolverFactory<SC,LO,GO,NO>;
     };

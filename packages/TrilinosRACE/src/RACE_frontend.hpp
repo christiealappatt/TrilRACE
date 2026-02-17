@@ -48,7 +48,35 @@ namespace RACE
             }
 
             using MV = Tpetra::MultiVector<Scalar, LocalOrdinal, GlobalOrdinal, Node>;
-            //TODO: permToOrig
+            
+            void permToOrig(MV &dest_vec, const MV& src_vec)
+            {
+                if(src_vec.getLocalLength() != pre.getNrows())
+                {
+                    ERROR_PRINT("Error in dimension");
+                }
+
+                Teuchos::ArrayRCP<Teuchos::ArrayRCP<const Scalar> > src_ptr = src_vec.get2dView();
+                Teuchos::ArrayRCP<Teuchos::ArrayRCP<Scalar> >      dest_ptr = dest_vec.get2dViewNonConst();
+
+                int *invperm = pre.getInvPerm();
+
+                for(size_t k = 0; k < src_vec.getNumVectors(); k++)
+                {
+                    for(LocalOrdinal i = 0; (size_t)i < src_vec.getLocalLength(); i++)
+                    {
+                        int orig_row = i;
+                        if(invperm)
+                        {
+                            orig_row = invperm[i];
+                        }
+
+                        dest_ptr[k][i] = src_ptr[k][orig_row];
+                    }
+                }
+            }
+
+            // DL NOTE: Do I really need two methods for this?
             void origToPerm(MV &dest_vec, const MV& src_vec)
             {
                 if(src_vec.getLocalLength() != pre.getNrows())

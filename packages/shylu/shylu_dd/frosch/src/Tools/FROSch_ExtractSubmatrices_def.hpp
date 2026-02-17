@@ -50,6 +50,232 @@ namespace FROSch {
     using namespace Teuchos;
     using namespace Xpetra;
 
+//     template <class SC,class LO,class GO,class NO>
+//     RCP<const Matrix<SC,LO,GO,NO> > ExtractLocalSubdomainMatrix(RCP<const Matrix<SC,LO,GO,NO> > globalMatrix,
+//                                                                 RCP<const Map<LO,GO,NO> > map)
+//     {
+//         FROSCH_DETAILTIMER_START(extractLocalSubdomainMatrixTime,"ExtractLocalSubdomainMatrix");
+//         RCP<Matrix<SC,LO,GO,NO> > subdomainMatrix = MatrixFactory<SC,LO,GO,NO>::Build(map,globalMatrix->getGlobalMaxNumRowEntries());
+// // #ifdef USE_RACE
+// //         // DL 2026.28.01: Why must one use 2lvl preconditioning to get this to print?
+// //         std::cout << "Preprocessing local subdomains with RACE!" << std::endl;
+// //         using crs_matrix_type = Tpetra::CrsMatrix<>;
+// //         using RACE_type = RACE::frontend<crs_matrix_type::scalar_type, crs_matrix_type::local_ordinal_type,crs_matrix_type::global_ordinal_type, crs_matrix_type::node_type>;
+// //         using Teuchos::ParameterList;
+
+// //         // Get sparse matrix A from Xpetra subdomainMatrix.
+
+// //         // ensure Tpetra backend
+// //         TEUCHOS_TEST_FOR_EXCEPTION(subdomainMatrix->getRowMap()->lib() != Xpetra::UseTpetra,
+// //                                    std::runtime_error,
+// //                                    "RACE requires Tpetra-backed Xpetra matrices.");
+
+// //         // 1.1 First, try directly to convert to TpetraCrsMatrix
+// //         auto tpetraX = Teuchos::rcp_dynamic_cast<Xpetra::TpetraCrsMatrix<SC,LO,GO,NO>>(subdomainMatrix);
+// //         if (tpetraX.is_null()) {
+// //             // 1.2 If that doesn't work, first send to an XPetra CRS matrix wrapper
+// //             auto wrap = Teuchos::rcp_dynamic_cast<Xpetra::CrsMatrixWrap<SC,LO,GO,NO>>(subdomainMatrix);
+// //             if (!wrap.is_null()) {
+// //                 // 1.3 Then, extract the Xpetra CRS matrix from the inner wrapper
+// //                 auto inner = wrap->getCrsMatrix(); // RCP<Matrix<SC,LO,GO,NO>>
+
+// //                 // 1.4 The Tpetra CRS matrix can then be cast to Tpetra from the Xpetra CRS matrix  
+// //                 tpetraX = Teuchos::rcp_dynamic_cast<Xpetra::TpetraCrsMatrix<SC,LO,GO,NO>>(inner);
+// //             }
+// //         }
+// //         TEUCHOS_TEST_FOR_EXCEPTION(tpetraX.is_null(), std::runtime_error,
+// //                                    "Failed to extract Xpetra::TpetraCrsMatrix (not Tpetra-backed or unexpected wrapper).");
+
+// //         // // 2. Extract const Tpetra CrsMatrix and make it non-const for RACE
+// //         Teuchos::RCP<const Tpetra::CrsMatrix<SC,LO,GO,NO>> A_const = tpetraX->getTpetra_CrsMatrix();
+
+// //         // // 3. Get back non-const subdomain matrix
+// //         Teuchos::RCP<Tpetra::CrsMatrix<SC,LO,GO,NO>> origA = Teuchos::rcp_const_cast<Tpetra::CrsMatrix<SC,LO,GO,NO>>(A_const);
+
+// //         Teuchos::RCP<RACE_type> race;
+// //         ParameterList RACE_params("RACE");
+
+// //         // TODO: manually fill parameter list!
+// //         //   RACE_params.set("Cache size", atof(args.RACE_cacheSize.c_str()));
+// //         RACE_params.set("Cache size", 5.0);
+// //         //   int highestPower = atoi(args.RACE_highestPower.c_str());
+// //         //   RACE_params.set("Highest power", highestPower);
+// //         //   RACE_params.set("Preconditioner", RACE_precon_type);
+// //         //   RACE_params.set("Preconditioner side", args.precSide);
+// //         //   RACE_params.set("Inner iteration", preconditionerInnerSweep);
+// //         //   RACE_params.set("Inner damping", preconditionerInnerDamping);
+
+// //         race = Teuchos::RCP<RACE_type>(new RACE_type(origA, RACE_params));
+
+// //         // Do RACE stuff
+
+// //         // RCP<crs_matrix_type> A;
+
+// //         // Cast back to Xpetra matrix
+// //         // Do RACE stuff: obtain the permuted Tpetra::CrsMatrix (replace getPermutedMatrix()
+// //         // with the actual RACE API you have).
+// //         Teuchos::RCP<Tpetra::CrsMatrix<SC,LO,GO,NO>> permutedA = race->getPermutedMatrix();
+
+// //         // Ensure the permuted matrix is fillComplete so its graph has a column Map.
+// //         if (!permutedA->isFillComplete()) {
+// //             // Use existing domain/range maps (safe if RACE preserves them)
+// //             // auto domainMap = permutedA->getDomainMap();
+// //             // auto rangeMap  = permutedA->getRangeMap();
+
+// //             // TODO: Pretty sure these are wrong!
+// //             auto domainMap = origA->getDomainMap();
+// //             auto rangeMap  = origA->getRangeMap();
+// //             permutedA->fillComplete(domainMap, rangeMap);
+// //         }
+// //         TEUCHOS_TEST_FOR_EXCEPTION(!permutedA->getCrsGraph()->hasColMap(), std::runtime_error,
+// //                                    "Permuted Tpetra::CrsMatrix graph has no column Map after fillComplete.");
+
+// //         // Wrap permuted Tpetra matrix back into Xpetra so the rest of FROSch works with it.
+// //         auto xpetraPermuted = Teuchos::rcp(new Xpetra::TpetraCrsMatrix<SC,LO,GO,NO>(permutedA));
+// //         subdomainMatrix = Teuchos::rcp_dynamic_cast<Xpetra::Matrix<SC,LO,GO,NO>>(xpetraPermuted);
+// //         TEUCHOS_TEST_FOR_EXCEPTION(subdomainMatrix.is_null(), std::runtime_error,
+// //                                    "Failed to wrap permuted Tpetra::CrsMatrix into Xpetra::Matrix.");
+
+// // #endif
+//         RCP<Import<LO,GO,NO> > scatter = ImportFactory<LO,GO,NO>::Build(globalMatrix->getRowMap(),map);
+//         subdomainMatrix->doImport(*globalMatrix,*scatter,ADD);
+// #ifdef USE_RACE
+//         subdomainMatrix->fillComplete(); // I don't understand why I have to do this
+
+//         // DL 2026.28.01: Why must one use 2lvl preconditioning to get this to print? 1lvl should be sufficient
+//         std::cout << "Preprocessing local subdomains with RACE!" << std::endl;
+//         using crs_matrix_type = Tpetra::CrsMatrix<>;
+//         using RACE_type = RACE::frontend<crs_matrix_type::scalar_type, crs_matrix_type::local_ordinal_type,crs_matrix_type::global_ordinal_type, crs_matrix_type::node_type>;
+//         using Teuchos::ParameterList;
+
+//         // Step 1. Get sparse matrix A from Xpetra subdomainMatrix.
+//         // ensure Tpetra backend
+//         TEUCHOS_TEST_FOR_EXCEPTION(subdomainMatrix->getRowMap()->lib() != Xpetra::UseTpetra,
+//                                    std::runtime_error,
+//                                    "RACE requires Tpetra-backed Xpetra matrices.");
+
+//         // 1.1 First, try directly to convert to TpetraCrsMatrix
+//         auto tpetraX = Teuchos::rcp_dynamic_cast<Xpetra::TpetraCrsMatrix<SC,LO,GO,NO>>(subdomainMatrix);
+//         if (tpetraX.is_null()) {
+//             // 1.2 If that doesn't work, first send to an XPetra CRS matrix wrapper
+//             auto wrap = Teuchos::rcp_dynamic_cast<Xpetra::CrsMatrixWrap<SC,LO,GO,NO>>(subdomainMatrix);
+//             if (!wrap.is_null()) {
+//                 // 1.3 Then, extract the Xpetra CRS matrix from the inner wrapper
+//                 auto inner = wrap->getCrsMatrix(); // RCP<Matrix<SC,LO,GO,NO>>
+
+//                 // 1.4 The Tpetra CRS matrix can then be cast to Tpetra from the Xpetra CRS matrix  
+//                 tpetraX = Teuchos::rcp_dynamic_cast<Xpetra::TpetraCrsMatrix<SC,LO,GO,NO>>(inner);
+//             }
+//         }
+//         TEUCHOS_TEST_FOR_EXCEPTION(tpetraX.is_null(), std::runtime_error,
+//                                    "Failed to extract Xpetra::TpetraCrsMatrix (not Tpetra-backed or unexpected wrapper).");
+
+//         // Extract const Tpetra CrsMatrix and make it non-const for RACE
+//         Teuchos::RCP<const Tpetra::CrsMatrix<SC,LO,GO,NO>> A_const = tpetraX->getTpetra_CrsMatrix();
+
+//         // Get back non-const subdomain matrix
+//         Teuchos::RCP<Tpetra::CrsMatrix<SC,LO,GO,NO>> origA = Teuchos::rcp_const_cast<Tpetra::CrsMatrix<SC,LO,GO,NO>>(A_const);
+
+//         Teuchos::RCP<RACE_type> race;
+//         ParameterList RACE_params("RACE");
+
+//         // TODO: manually fill parameter list!
+//         //   RACE_params.set("Cache size", atof(args.RACE_cacheSize.c_str()));
+//         RACE_params.set("Cache size", 5.0); // Just for testing
+//         //   int highestPower = atoi(args.RACE_highestPower.c_str());
+//         //   RACE_params.set("Highest power", highestPower);
+//         //   RACE_params.set("Preconditioner", RACE_precon_type);
+//         //   RACE_params.set("Preconditioner side", args.precSide);
+//         //   RACE_params.set("Inner iteration", preconditionerInnerSweep);
+//         //   RACE_params.set("Inner damping", preconditionerInnerDamping);
+
+//         race = Teuchos::RCP<RACE_type>(new RACE_type(origA, RACE_params));
+
+//         // Do RACE stuff
+
+//         // RCP<crs_matrix_type> A;
+
+//         // Cast back to Xpetra matrix
+//         // Do RACE stuff: obtain the permuted Tpetra::CrsMatrix (replace getPermutedMatrix()
+//         // with the actual RACE API you have).
+//         // Step 2. Permute matrix with RACE
+//         Teuchos::RCP<Tpetra::CrsMatrix<SC,LO,GO,NO>> permutedA = race->getPermutedMatrix();
+
+//         // Debug / sanity checks
+//         bool isFC = permutedA->isFillComplete();
+//         auto rmap = permutedA->getRowMap();
+//         auto cmap = permutedA->getColMap();
+//         auto dmap = permutedA->getDomainMap();
+//         auto rgeom = rmap.is_null() ? -1 : rmap->getLocalNumElements();
+//         std::cout << "[FROSch] permutedA: isFillComplete=" << isFC
+//                   << " rowLocal=" << rgeom
+//                   << " hasColMap=" << (cmap.is_null()?0:1)
+//                   << " hasDomainMap=" << (dmap.is_null()?0:1) << std::endl;
+
+//         // Step 3. Cast back to Xpetra Matrix to work with rest of Frosch
+//         // Ensure the permuted matrix is fillComplete so its graph has a column Map.
+//         if (!permutedA->isFillComplete()) {
+//             // Use existing domain/range maps (safe if RACE preserves them)
+//             // auto domainMap = permutedA->getDomainMap();
+//             // auto rangeMap  = permutedA->getRangeMap();
+
+//             // TODO: Pretty sure these are wrong!
+//             auto domainMap = origA->getDomainMap();
+//             auto rangeMap  = origA->getRangeMap();
+//             permutedA->fillComplete(domainMap, rangeMap);
+//         }
+//         TEUCHOS_TEST_FOR_EXCEPTION(!permutedA->getCrsGraph()->hasColMap(), std::runtime_error,
+//                                    "Permuted Tpetra::CrsMatrix graph has no column Map after fillComplete.");
+
+//         // Try to wrap into Xpetra; if direct cast fails, create a CrsMatrixWrap fallback
+//         auto xpetraTpetra = Teuchos::rcp(new Xpetra::TpetraCrsMatrix<SC,LO,GO,NO>(permutedA));
+//         Teuchos::RCP<Xpetra::Matrix<SC,LO,GO,NO>> newX;
+//         newX = Teuchos::rcp_dynamic_cast<Xpetra::Matrix<SC,LO,GO,NO>>(xpetraTpetra);
+//         if (newX.is_null()) {
+//             // Explicitly obtain an RCP to Xpetra::CrsMatrix and pass that into CrsMatrixWrap
+//             auto xcrs = Teuchos::rcp_dynamic_cast<Xpetra::CrsMatrix<SC,LO,GO,NO>>(xpetraTpetra);
+//             TEUCHOS_TEST_FOR_EXCEPTION(xcrs.is_null(), std::runtime_error,
+//                                        "Cannot cast Tpetra wrapper to Xpetra::CrsMatrix for fallback wrap.");
+//             auto crsWrap = Teuchos::rcp(new Xpetra::CrsMatrixWrap<SC,LO,GO,NO>(xcrs));
+//             newX = Teuchos::rcp_dynamic_cast<Xpetra::Matrix<SC,LO,GO,NO>>(crsWrap);
+//         }
+//         TEUCHOS_TEST_FOR_EXCEPTION(newX.is_null(), std::runtime_error,
+//                                    "Failed to wrap permuted Tpetra::CrsMatrix into an Xpetra::Matrix (incompatible wrapper).");
+
+//         subdomainMatrix = newX;
+
+//         // Can't print matrix before fillCompleting it?
+//         // cout << *subdomainMatrix << endl;
+//         // exit(1);
+// #endif
+
+//         RCP<const Comm<LO> > SerialComm = rcp(new MpiComm<LO>(MPI_COMM_SELF));
+//         RCP<Map<LO,GO,NO> > localSubdomainMap = MapFactory<LO,GO,NO>::Build(map->lib(),map->getLocalNumElements(),0,SerialComm);
+//         RCP<Matrix<SC,LO,GO,NO> > localSubdomainMatrix = MatrixFactory<SC,LO,GO,NO>::Build(localSubdomainMap,globalMatrix->getGlobalMaxNumRowEntries());
+
+//         for (unsigned i=0; i<localSubdomainMap->getLocalNumElements(); i++) {
+//             ArrayView<const GO> indices;
+//             ArrayView<const SC> values;
+//             subdomainMatrix->getGlobalRowView(map->getGlobalElement(i),indices,values);
+
+//             LO size = indices.size();
+//             if (size>0) {
+//                 Array<GO> indicesLocal;
+//                 Array<SC> valuesLocal;
+//                 for (LO j=0; j<size; j++) {
+//                     GO localIndex = map->getLocalElement(indices[j]);
+//                     if (localIndex>=0) {
+//                         indicesLocal.push_back(localIndex);
+//                         valuesLocal.push_back(values[j]);
+//                     }
+//                 }
+//                 localSubdomainMatrix->insertGlobalValues(i,indicesLocal(),valuesLocal());
+//             }
+//         }
+//         localSubdomainMatrix->fillComplete();
+//         return localSubdomainMatrix.getConst();
+//     }
+
     template <class SC,class LO,class GO,class NO>
     RCP<const Matrix<SC,LO,GO,NO> > ExtractLocalSubdomainMatrix(RCP<const Matrix<SC,LO,GO,NO> > globalMatrix,
                                                                 RCP<const Map<LO,GO,NO> > map)
