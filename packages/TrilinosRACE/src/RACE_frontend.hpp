@@ -49,6 +49,7 @@ namespace RACE
 
             using MV = Tpetra::MultiVector<Scalar, LocalOrdinal, GlobalOrdinal, Node>;
             
+            // DL 2026-03-30 TODO: Slow!
             void permToOrig(MV &dest_vec, const MV& src_vec)
             {
                 if(src_vec.getLocalLength() != pre.getNrows())
@@ -77,6 +78,7 @@ namespace RACE
             }
 
             // DL NOTE: Do I really need two methods for this?
+            // DL 2026-03-30 TODO: Slow!
             void origToPerm(MV &dest_vec, const MV& src_vec)
             {
                 if(src_vec.getLocalLength() != pre.getNrows())
@@ -196,8 +198,10 @@ namespace RACE
                 // timer
                 Teuchos::RCP< Teuchos::Time > timer  = Teuchos::TimeMonitor::getNewCounter ("RACE::MGSmoother kernel");
                 Teuchos::TimeMonitor LocalTimer (*timer);
-
-
+#ifdef DANE_RACE_DEBUG
+                // Dane, 26.03.26
+                printf("[RACE] apply_Smoother: sweeps=%d, precType=%s\n", sweeps, exec.getPrecType().c_str()); // ADD
+#endif
                 //step size and use it
                 std::string precType = exec.getPrecType();
                 if( (precType=="TWO-STEP-GAUSS-SEIDEL") || (precType=="CHEBYSHEV") )

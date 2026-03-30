@@ -137,15 +137,18 @@ namespace FROSch {
         bool needToApplyPerm;
         Teuchos::ArrayRCP<LO>    perm;
         Teuchos::ArrayRCP<LO>    revperm;
+
         // Added by Dane 17.02.2026
 #ifdef USE_RACE
         Teuchos::ParameterList Ifpack2Params_;
         std::string Ifpack2Type_;
+        int highestPower_ = 3; // TODO: Placeholder, will be tuned at runtime
         Teuchos::RCP<RACE_type> race_;
         mutable Teuchos::RCP<Tpetra::MultiVector<SC,LO,GO,NO>> raceXwork_;
         mutable Teuchos::RCP<Tpetra::MultiVector<SC,LO,GO,NO>> raceYwork_;
+        Teuchos::RCP<const Tpetra::Map<LO,GO,NO>> raceDomainMap_;
+        Teuchos::RCP<const Tpetra::Map<LO,GO,NO>> raceRangeMap_;
 #endif
-        //
 
         friend class SolverFactory<SC,LO,GO,NO>;
     };

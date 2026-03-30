@@ -99,17 +99,37 @@ namespace FROSch {
         RCP<crs_matrix_type> A;
         void* raceVoidHandle = NULL;
 
-
         ParameterList RACE_params("RACE");
-        // TODO: manually fill parameter list!
+        // manually fill parameter list! 
+        // DL 2026-03-30: TODO: Should not be hardcoded. Read from .xml file!
+        highestPower_ = 6;
+        std::string RACE_precon_type = "CHEBYSHEV";
+
+        // Taken from Stratemikos example!
+        double lambdaMax = std::nan("");
+        if (Ifpack2Params_.isParameter("chebyshev: max eigenvalue")) {
+        lambdaMax = Ifpack2Params_.get("chebyshev: max eigenvalue", lambdaMax);
+        RACE_params.set("max eigenvalue", lambdaMax);
+        }
+        double eigRatio = 20.0;
+        if (Ifpack2Params_.isParameter("chebyshev: ratio eigenvalue")) {
+        eigRatio = Ifpack2Params_.get("chebyshev: ratio eigenvalue", eigRatio);
+        }
+        RACE_params.set("ratio eigenvalue", eigRatio);
+        if (!std::isnan(lambdaMax))
+        RACE_params.set("min eigenvalue", lambdaMax / eigRatio);
+        int smootherOuterSweep = Ifpack2Params_.get("chebyshev: degree", 3);
+        RACE_params.set("Outer iteration", smootherOuterSweep);
+        //
+
+        // DL 2026-03-30 TODO: Read cache size and power from .xml
         //   RACE_params.set("Cache size", atof(args.RACE_cacheSize.c_str()));
-        RACE_params.set("Cache size", 5.0); // Just for testing
+        RACE_params.set("Cache size", 6.0); // Just for testing
         //   int highestPower = atoi(args.RACE_highestPower.c_str());
-        //   RACE_params.set("Highest power", highestPower);
-        //   RACE_params.set("Preconditioner", RACE_precon_type);
-        //   RACE_params.set("Preconditioner side", args.precSide);
-        //   RACE_params.set("Inner iteration", preconditionerInnerSweep);
-        //   RACE_params.set("Inner damping", preconditionerInnerDamping);
+          RACE_params.set("Highest power", highestPower_);
+          RACE_params.set("Preconditioner", RACE_precon_type);
+
+
 
        // Try to extract a Tpetra::CrsMatrix from the Ifpack2 preconditioner's matrix (non-const)
         ConstTCrsMatrixPtr constCrs = Ifpack2::Details::getCrsMatrix<SC,LO,GO,NO>(Ifpack2RACEPreconditioner_->getMatrix());
@@ -139,7 +159,20 @@ namespace FROSch {
                 << " cols=" << A->getGlobalNumCols()
                 << " nnz="  << A->getGlobalNumEntries()
                 << std::endl;
+
+        TEUCHOS_TEST_FOR_EXCEPTION(A.is_null(), std::runtime_error, "RACE returned null matrix.");
+        TEUCHOS_TEST_FOR_EXCEPTION(!A->isFillComplete(), std::runtime_error, "RACE returned matrix NOT fillComplete()");
+
+        // Are A and crsMat the same object (aliasing)?
+        if (A.getRawPtr() == crsMat.getRawPtr()) {
+        std::cerr << "[WARN] A and crsMat share the same pointer (shallow alias)" << std::endl;
+        }
+
+        // Basic sizes
+        std::cout << "[DEBUG] RACE permuted A: localRows=" << A->getLocalNumRows()
+                << " localNNZ=" << A->getLocalNumEntries() << std::endl;
 #endif
+
         if (A.is_null()) {
             std::cerr << "Ifpack2RACEPreconditionerTpetra::initialize: race returned null matrix." << std::endl;
             return -1;
@@ -147,6 +180,10 @@ namespace FROSch {
 
         // Keep interface void pointer for later
         raceVoidHandle = (void*)(race.getRawPtr());
+
+        RACE_params.set("RACE void handle", raceVoidHandle);
+        RACE_params.set("Use RACE", true);
+        RACE_params.set("RACE tuned power", highestPower_);
 
         // Cast back to TRowMatrix, and give back to Ifpack2
         // But, since there does not exist a "setMatrix" for generic Ifpack2RACEPreconditioner_,
@@ -183,14 +220,38 @@ namespace FROSch {
                 << mat->getGlobalNumEntries() << " nnz" << std::endl;
 #endif
 
-        // Reapply the exact same parameters
+        // Reapply the exact same parameters + RACE params for Belos
         newPrec->setParameters(params);
+        newPrec->initialize();
+        this->IsComputed_ = true;
+        newPrec->compute();
+
+#ifdef DANE_DEBUG
+        auto precMat = newPrec->getMatrix();
+        TEUCHOS_TEST_FOR_EXCEPTION(precMat.is_null(), std::runtime_error, "newPrec->getMatrix() returned null");
+
+        TEUCHOS_TEST_FOR_EXCEPTION(!precMat->getDomainMap()->isCompatible(*A->getDomainMap()),
+            std::runtime_error,
+            "Ifpack2 newPrec domain map NOT compatible with RACE permuted A domain map");
+
+        std::cout << "[DEBUG] newPrec domain/local: " << precMat->getDomainMap()->getLocalNumElements()
+                << "  A domain/local: " << A->getDomainMap()->getLocalNumElements() << std::endl;
+#endif
 
         // Replace old instance
         Ifpack2RACEPreconditioner_ = newPrec;
 
         // Save the RACE RCP into the class
         this->race_ = race;
+
+        // Cache maps and pre-allocate work vectors so apply() has no per-call overhead
+        {
+            auto permMat = newPrec->getMatrix();
+            raceDomainMap_ = permMat->getDomainMap();
+            raceRangeMap_  = permMat->getRangeMap();
+            raceXwork_ = Teuchos::rcp(new Tpetra::MultiVector<SC,LO,GO,NO>(raceDomainMap_, 1));
+            raceYwork_ = Teuchos::rcp(new Tpetra::MultiVector<SC,LO,GO,NO>(raceRangeMap_,  1));
+        }
 #ifdef DANE_DEBUG
         {
             auto map = Ifpack2RACEPreconditioner_->getMatrix()->getRowMap(); // or original map
@@ -221,10 +282,11 @@ namespace FROSch {
                 "RACE permutation round-trip failed (swap perm semantics).");
         }
 #endif
-#endif
+#else
         
         this->IsComputed_ = true;
         Ifpack2RACEPreconditioner_->compute();
+#endif
 #ifdef DANE_DEBUG
         std::cout << "compute() done" << std::endl;
 #endif
@@ -240,14 +302,8 @@ namespace FROSch {
     {
 #ifdef DANE_DEBUG
         std::cout << "Calling Ifpack2RACEPreconditionerTpetra<SC,LO,GO,NO>::apply..." << std::endl;
-
-        // Print diagonal of permuted matrix
-        auto Aperm = Ifpack2RACEPreconditioner_->getMatrix();
-        Tpetra::Vector<SC,LO,GO,NO> diag(Aperm->getRowMap());
-        Aperm->getLocalDiagCopy(diag);
-        auto dv = diag.getData();
-        for (int i=0;i<std::min<int>(10, dv.size()); ++i) std::cout << dv[i] << " ";
 #endif
+
         FROSCH_TIMER_START_SOLVER(applyTime,"Ifpack2RACEPreconditionerTpetra::apply");
         FROSCH_ASSERT(this->IsComputed_,"FROSch::Ifpack2RACEPreconditionerTpetra: !this->IsComputed_.");
 
@@ -258,38 +314,20 @@ namespace FROSch {
         const TpetraMultiVector<SC,LO,GO,NO> * xTpetraMultiVectorY = dynamic_cast<const TpetraMultiVector<SC,LO,GO,NO> *>(&y);
         FROSCH_ASSERT(xTpetraMultiVectorY,"FROSch::Ifpack2RACEPreconditionerTpetra: dynamic_cast failed.");
         TMultiVectorPtr tpetraMultiVectorY = xTpetraMultiVectorY->getTpetra_MultiVector();
+
 #ifdef USE_RACE
-
-#if 0
-        // allocate workspace once if not present
-        if (raceXwork_.is_null() || raceXwork_->getNumVectors() != tpetraMultiVectorX->getNumVectors()) {
-            raceXwork_ = Teuchos::rcp(new Tpetra::MultiVector<SC,LO,GO,NO>(tpetraMultiVectorX->getMap(), tpetraMultiVectorX->getNumVectors()));
+        // Maps are cached in compute()
+        if (raceXwork_->getNumVectors() != tpetraMultiVectorX->getNumVectors()) {
+            raceXwork_ = Teuchos::rcp(new Tpetra::MultiVector<SC,LO,GO,NO>(raceDomainMap_, tpetraMultiVectorX->getNumVectors()));
+            raceYwork_ = Teuchos::rcp(new Tpetra::MultiVector<SC,LO,GO,NO>(raceRangeMap_,  tpetraMultiVectorX->getNumVectors()));
         }
-        if (raceYwork_.is_null() || raceYwork_->getNumVectors() != tpetraMultiVectorY->getNumVectors()) {
-            raceYwork_ = Teuchos::rcp(new Tpetra::MultiVector<SC,LO,GO,NO>(tpetraMultiVectorY->getMap(), tpetraMultiVectorY->getNumVectors()));
-        }
-#elif 1
-        // Alternate way to allocate working vectors
-        // get preconditioner matrix (permuted) maps
-        auto precMat = Ifpack2RACEPreconditioner_->getMatrix();
-        auto domainMap = precMat->getDomainMap();   // input map for apply
-        auto rangeMap  = precMat->getRangeMap();    // output map for apply
-
-        if (raceXwork_.is_null() || raceXwork_->getNumVectors() != tpetraMultiVectorX->getNumVectors()
-            || !raceXwork_->getMap()->isCompatible(*domainMap)) {
-            raceXwork_ = Teuchos::rcp(new Tpetra::MultiVector<SC,LO,GO,NO>(domainMap, tpetraMultiVectorX->getNumVectors()));
-        }
-        if (raceYwork_.is_null() || raceYwork_->getNumVectors() != tpetraMultiVectorY->getNumVectors()
-            || !raceYwork_->getMap()->isCompatible(*rangeMap)) {
-            raceYwork_ = Teuchos::rcp(new Tpetra::MultiVector<SC,LO,GO,NO>(rangeMap, tpetraMultiVectorY->getNumVectors()));
-        }
-#endif
 
         // Permute original x -> permuted Xp
         race_->origToPerm(*raceXwork_, *tpetraMultiVectorX);
 
+        // DL 2026-03-30 TODO: Auto input for tunedPow
         // Apply preconditioner built on permuted matrix
-        Ifpack2RACEPreconditioner_->apply(*raceXwork_, *raceYwork_, mode, alpha, beta);
+        race_->apply_Smoother(highestPower_, *raceYwork_, *raceXwork_, true, true, highestPower_);
 
         // Permute result back to original ordering
         race_->permToOrig(*tpetraMultiVectorY, *raceYwork_);
@@ -314,10 +352,11 @@ namespace FROSch {
             filteredA->permuteReorderedToOriginal (ReorderedY, *tpetraMultiVectorY);
         } else
 #endif
-#endif
         {
             Ifpack2RACEPreconditioner_->apply(*tpetraMultiVectorX,*tpetraMultiVectorY,mode,alpha,beta);
         }
+#endif
+
 #ifdef DANE_DEBUG
         std::cout << "apply() done" << std::endl;
 
