@@ -142,7 +142,7 @@ namespace FROSch {
 #ifdef USE_RACE
         Teuchos::ParameterList Ifpack2Params_;
         std::string Ifpack2Type_;
-        int highestPower_ = 3; // TODO: Placeholder, will be tuned at runtime
+        int highestPower_;
         Teuchos::RCP<RACE_type> race_;
         mutable Teuchos::RCP<Tpetra::MultiVector<SC,LO,GO,NO>> raceXwork_;
         mutable Teuchos::RCP<Tpetra::MultiVector<SC,LO,GO,NO>> raceYwork_;

@@ -93,43 +93,45 @@ namespace FROSch {
 #ifdef USE_RACE
         std::cout << "Preprocessing local subdomains with RACE!" << std::endl;
 
-        // How will this be passed between subroutines?
-        // Just leave outside? Above subroutines?
+        // Get parameters from .xml file
+        Teuchos::ParameterList& raceXmlParams = this->ParameterList_->sublist("RACE");
         Teuchos::RCP<RACE_type> race;
         RCP<crs_matrix_type> A;
         void* raceVoidHandle = NULL;
 
         ParameterList RACE_params("RACE");
-        // manually fill parameter list! 
-        // DL 2026-03-30: TODO: Should not be hardcoded. Read from .xml file!
-        highestPower_ = 6;
-        std::string RACE_precon_type = "CHEBYSHEV";
+		double cacheSize = 1.0;
+		if (raceXmlParams.isParameter("Cache size"))
+        	cacheSize = raceXmlParams.get("Cache size", 1.0);
+		if (raceXmlParams.isParameter("Highest power"))
+       		highestPower_ = raceXmlParams.get("Highest power", 1);
 
-        // Taken from Stratemikos example!
-        double lambdaMax = std::nan("");
-        if (Ifpack2Params_.isParameter("chebyshev: max eigenvalue")) {
-        lambdaMax = Ifpack2Params_.get("chebyshev: max eigenvalue", lambdaMax);
-        RACE_params.set("max eigenvalue", lambdaMax);
+        RACE_params.set("Cache size", cacheSize);
+        RACE_params.set("Highest power", highestPower_);
+        RACE_params.set("Preconditioner", Ifpack2Type_);
+
+        // Force CHEBYSHEV for now
+        if (Ifpack2Type_ != std::string("CHEBYSHEV")){
+			std::cout << "For now, only CHEBYSHEV supported" << std::endl;
         }
-        double eigRatio = 20.0;
-        if (Ifpack2Params_.isParameter("chebyshev: ratio eigenvalue")) {
-        eigRatio = Ifpack2Params_.get("chebyshev: ratio eigenvalue", eigRatio);
+        else {
+			// Taken from: TrilRACE/packages/muelu/example/basic/Stratimikos.cpp
+			double lambdaMax = std::nan("");
+			if (Ifpack2Params_.isParameter("chebyshev: max eigenvalue")) {
+			lambdaMax = Ifpack2Params_.get("chebyshev: max eigenvalue", lambdaMax);
+			RACE_params.set("max eigenvalue", lambdaMax);
+			}
+			double eigRatio = 20.0;
+			if (Ifpack2Params_.isParameter("chebyshev: ratio eigenvalue")) {
+			eigRatio = Ifpack2Params_.get("chebyshev: ratio eigenvalue", eigRatio);
+			}
+			RACE_params.set("ratio eigenvalue", eigRatio);
+			if (!std::isnan(lambdaMax))
+			RACE_params.set("min eigenvalue", lambdaMax / eigRatio);
+			int smootherOuterSweep = Ifpack2Params_.get("chebyshev: degree", 3);
+			RACE_params.set("Outer iteration", smootherOuterSweep);
         }
-        RACE_params.set("ratio eigenvalue", eigRatio);
-        if (!std::isnan(lambdaMax))
-        RACE_params.set("min eigenvalue", lambdaMax / eigRatio);
-        int smootherOuterSweep = Ifpack2Params_.get("chebyshev: degree", 3);
-        RACE_params.set("Outer iteration", smootherOuterSweep);
         //
-
-        // DL 2026-03-30 TODO: Read cache size and power from .xml
-        //   RACE_params.set("Cache size", atof(args.RACE_cacheSize.c_str()));
-        RACE_params.set("Cache size", 6.0); // Just for testing
-        //   int highestPower = atoi(args.RACE_highestPower.c_str());
-          RACE_params.set("Highest power", highestPower_);
-          RACE_params.set("Preconditioner", RACE_precon_type);
-
-
 
        // Try to extract a Tpetra::CrsMatrix from the Ifpack2 preconditioner's matrix (non-const)
         ConstTCrsMatrixPtr constCrs = Ifpack2::Details::getCrsMatrix<SC,LO,GO,NO>(Ifpack2RACEPreconditioner_->getMatrix());
@@ -150,6 +152,7 @@ namespace FROSch {
         
         // Have RACE permute matrix
         A = race->getPermutedMatrix();
+
 #ifdef DANE_DEBUG
         TEUCHOS_TEST_FOR_EXCEPTION(A.is_null(), std::runtime_error,
             "RACE returned null matrix.");
