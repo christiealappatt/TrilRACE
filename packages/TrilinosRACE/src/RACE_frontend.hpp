@@ -60,19 +60,44 @@ namespace RACE
                 Teuchos::ArrayRCP<Teuchos::ArrayRCP<const Scalar> > src_ptr = src_vec.get2dView();
                 Teuchos::ArrayRCP<Teuchos::ArrayRCP<Scalar> >      dest_ptr = dest_vec.get2dViewNonConst();
 
-                int *invperm = pre.getInvPerm();
-
-                for(size_t k = 0; k < src_vec.getNumVectors(); k++)
+                const size_t nrows = src_vec.getLocalLength();
+                const size_t nvecs = src_vec.getNumVectors();
+#if 1
+                const int* invperm = pre.getInvPerm();
+                if(invperm)
                 {
-                    for(LocalOrdinal i = 0; (size_t)i < src_vec.getLocalLength(); i++)
+                    for(size_t k = 0; k < nvecs; k++)
                     {
-                        int orig_row = i;
-                        if(invperm)
-                        {
-                            orig_row = invperm[i];
-                        }
+                        const Scalar* __restrict__ src = src_ptr[k].getRawPtr();
+                        Scalar*       __restrict__ dst = dest_ptr[k].getRawPtr();
 
-                        dest_ptr[k][i] = src_ptr[k][orig_row];
+                        const int* __restrict__    ip  = invperm;
+                        for(size_t i = 0; i < nrows; i++)
+                            dst[i] = src[ip[i]];
+                    }
+                }
+#elif 0 // Swap gather loads for scatter reads
+                const int *perm = pre.getPerm();
+                if(perm)
+                {
+                    for(size_t k = 0; k < nvecs; k++)
+                    {
+                        const Scalar* __restrict__ src = src_ptr[k].getRawPtr();
+                        Scalar*       __restrict__ dst = dest_ptr[k].getRawPtr();
+                        const int* __restrict__    p  = perm;
+                        for(size_t i = 0; i < nrows; i++)
+                            dst[p[i]] = src[i];
+                    }
+                }
+#endif
+                else
+                {
+                    for(size_t k = 0; k < nvecs; k++)
+                    {
+                        const Scalar* __restrict__ src = src_ptr[k].getRawPtr();
+                        Scalar*       __restrict__ dst = dest_ptr[k].getRawPtr();
+                        for(size_t i = 0; i < nrows; i++)
+                            dst[i] = src[i];
                     }
                 }
             }
@@ -89,20 +114,46 @@ namespace RACE
                 Teuchos::ArrayRCP<Teuchos::ArrayRCP<const Scalar> > src_ptr = src_vec.get2dView();
                 Teuchos::ArrayRCP<Teuchos::ArrayRCP<Scalar> >      dest_ptr = dest_vec.get2dViewNonConst();
 
-                int *perm = pre.getPerm();
+                
+                const size_t nrows = src_vec.getLocalLength();
+                const size_t nvecs = src_vec.getNumVectors();
 
-                for(size_t k=0; k < src_vec.getNumVectors(); k++)
+#if 1
+                const int *perm = pre.getPerm();
+                if(perm)
                 {
-                    for(LocalOrdinal i=0; (size_t)i< src_vec.getLocalLength(); i++)
+                    for(size_t k = 0; k < nvecs; k++)
                     {
-                        int perm_row = i;
-                        if(perm)
-                        {
-                            perm_row = perm[i];
-                        }
+                        const Scalar* __restrict__ src = src_ptr[k].getRawPtr();
+                        Scalar*       __restrict__ dst = dest_ptr[k].getRawPtr();
 
-                        dest_ptr[k][i] = src_ptr[k][perm_row];
-
+                        const int* __restrict__    p  = perm;
+                        for(size_t i = 0; i < nrows; i++)
+                            dst[i] = src[p[i]];
+                    }
+                }
+#elif 0 // Swap gather loads for scatter reads
+                const int* invperm = pre.getInvPerm();
+                if(invperm)
+                {
+                    for(size_t k = 0; k < nvecs; k++)
+                    {
+                        const Scalar* __restrict__ src = src_ptr[k].getRawPtr();
+                        Scalar*       __restrict__ dst = dest_ptr[k].getRawPtr();
+                        const int* __restrict__    ip  = invperm;
+                        for(size_t i = 0; i < nrows; i++)
+                            dst[ip[i]] = src[i];
+                    }
+                }
+#endif
+                else
+                {
+                    for(size_t k = 0; k < nvecs; k++)
+                    {
+                        const Scalar* __restrict__ src = src_ptr[k].getRawPtr();
+                        Scalar*       __restrict__ dst = dest_ptr[k].getRawPtr();
+                        for(size_t i = 0; i < nrows; i++)
+                            dst[i] = src[i];
                     }
                 }
             }

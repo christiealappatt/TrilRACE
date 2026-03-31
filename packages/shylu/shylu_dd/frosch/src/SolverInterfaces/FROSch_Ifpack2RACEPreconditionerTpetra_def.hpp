@@ -325,6 +325,7 @@ namespace FROSch {
             raceYwork_ = Teuchos::rcp(new Tpetra::MultiVector<SC,LO,GO,NO>(raceRangeMap_,  tpetraMultiVectorX->getNumVectors()));
         }
 
+#if 1	// Correct version
         // Permute original x -> permuted Xp
         race_->origToPerm(*raceXwork_, *tpetraMultiVectorX);
 
@@ -334,6 +335,11 @@ namespace FROSch {
 
         // Permute result back to original ordering
         race_->permToOrig(*tpetraMultiVectorY, *raceYwork_);
+
+#elif 0	// Test to measure performance w/out perm overhead
+        race_->apply_Smoother(highestPower_, *tpetraMultiVectorY, *tpetraMultiVectorX, true, true, highestPower_);
+#endif
+
 #else
 #ifdef HAVE_SHYLU_DDFROSCH_ZOLTAN2
         if (this->useZoltan2 && this->useRILUK) {
