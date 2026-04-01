@@ -98,6 +98,7 @@ namespace FROSch {
         Teuchos::RCP<RACE_type> race;
         RCP<crs_matrix_type> A;
         void* raceVoidHandle = NULL;
+        tunedPower_ = 1;
 
         ParameterList RACE_params("RACE");
 		double cacheSize = 1.0;
@@ -112,24 +113,24 @@ namespace FROSch {
 
         // Force CHEBYSHEV for now
         if (Ifpack2Type_ != std::string("CHEBYSHEV")){
-			std::cout << "For now, only CHEBYSHEV supported" << std::endl;
+                std::cout << "For now, only CHEBYSHEV supported" << std::endl;
         }
         else {
-			// Taken from: TrilRACE/packages/muelu/example/basic/Stratimikos.cpp
-			double lambdaMax = std::nan("");
-			if (Ifpack2Params_.isParameter("chebyshev: max eigenvalue")) {
-			lambdaMax = Ifpack2Params_.get("chebyshev: max eigenvalue", lambdaMax);
-			RACE_params.set("max eigenvalue", lambdaMax);
-			}
-			double eigRatio = 20.0;
-			if (Ifpack2Params_.isParameter("chebyshev: ratio eigenvalue")) {
-			eigRatio = Ifpack2Params_.get("chebyshev: ratio eigenvalue", eigRatio);
-			}
-			RACE_params.set("ratio eigenvalue", eigRatio);
-			if (!std::isnan(lambdaMax))
-			RACE_params.set("min eigenvalue", lambdaMax / eigRatio);
-			int smootherOuterSweep = Ifpack2Params_.get("chebyshev: degree", 3);
-			RACE_params.set("Outer iteration", smootherOuterSweep);
+                // Taken from: TrilRACE/packages/muelu/example/basic/Stratimikos.cpp
+                double lambdaMax = std::nan("");
+                if (Ifpack2Params_.isParameter("chebyshev: max eigenvalue")) {
+                lambdaMax = Ifpack2Params_.get("chebyshev: max eigenvalue", lambdaMax);
+                RACE_params.set("max eigenvalue", lambdaMax);
+                }
+                double eigRatio = 20.0;
+                if (Ifpack2Params_.isParameter("chebyshev: ratio eigenvalue")) {
+                eigRatio = Ifpack2Params_.get("chebyshev: ratio eigenvalue", eigRatio);
+                }
+                RACE_params.set("ratio eigenvalue", eigRatio);
+                if (!std::isnan(lambdaMax))
+                RACE_params.set("min eigenvalue", lambdaMax / eigRatio);
+                int smootherOuterSweep = Ifpack2Params_.get("chebyshev: degree", 3);
+                RACE_params.set("Outer iteration", smootherOuterSweep);
         }
         //
 
@@ -186,7 +187,7 @@ namespace FROSch {
 
         RACE_params.set("RACE void handle", raceVoidHandle);
         RACE_params.set("Use RACE", true);
-        RACE_params.set("RACE tuned power", highestPower_);
+        RACE_params.set("RACE tuned power", tunedPower_);
 
         // Cast back to TRowMatrix, and give back to Ifpack2
         // But, since there does not exist a "setMatrix" for generic Ifpack2RACEPreconditioner_,
@@ -255,6 +256,17 @@ namespace FROSch {
             raceXwork_ = Teuchos::rcp(new Tpetra::MultiVector<SC,LO,GO,NO>(raceDomainMap_, 1));
             raceYwork_ = Teuchos::rcp(new Tpetra::MultiVector<SC,LO,GO,NO>(raceRangeMap_,  1));
         }
+
+        // Autotuning: race_ and work vectors are ready here
+        {
+            Teuchos::RCP<Tpetra::MultiVector<SC,LO,GO,NO>> test_x, test_b, test_r;
+            test_x = Teuchos::rcp(new Tpetra::MultiVector<SC,LO,GO,NO>(raceRangeMap_, 1));
+            test_b = Teuchos::rcp(new Tpetra::MultiVector<SC,LO,GO,NO>(raceRangeMap_, 1));
+            test_r = Teuchos::rcp(new Tpetra::MultiVector<SC,LO,GO,NO>(raceRangeMap_, 1));
+            tunedPower_ = race_->apply_Smoother(highestPower_, *test_x, *test_b, *test_r, false, true, -1);
+            printf("tuned pow = %d\n", tunedPower_);
+        }
+
 #ifdef DANE_DEBUG
         {
             auto map = Ifpack2RACEPreconditioner_->getMatrix()->getRowMap(); // or original map
@@ -331,13 +343,13 @@ namespace FROSch {
 
         // DL 2026-03-30 TODO: Auto input for tunedPow
         // Apply preconditioner built on permuted matrix
-        race_->apply_Smoother(highestPower_, *raceYwork_, *raceXwork_, true, true, highestPower_);
+        race_->apply_Smoother(highestPower_, *raceYwork_, *raceXwork_, true, true, tunedPower_);
 
         // Permute result back to original ordering
         race_->permToOrig(*tpetraMultiVectorY, *raceYwork_);
 
 #elif 0	// Test to measure performance w/out perm overhead
-        race_->apply_Smoother(highestPower_, *tpetraMultiVectorY, *tpetraMultiVectorX, true, true, highestPower_);
+        race_->apply_Smoother(highestPower_, *tpetraMultiVectorY, *tpetraMultiVectorX, true, true, tunedPower_);
 #endif
 
 #else
