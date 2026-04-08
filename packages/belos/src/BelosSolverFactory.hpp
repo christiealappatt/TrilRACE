@@ -370,7 +370,8 @@ getSolver (const std::string& solverName,
 
   for(typename std::map<const std::string, Teuchos::RCP<typename SolverFactoryParent<Scalar, MV, OP>::solver_base_type> >::iterator it=get_solverManagers().begin(); it!=get_solverManagers().end(); ++it)
   {
-      std::cout<<"Solver: "<< static_cast<std::string>(it->first) << std::endl;
+    // 2026.04.08 DL annoying, prints every rank
+      // std::cout<<"Solver: "<< static_cast<std::string>(it->first) << std::endl;
   }
 
   TEUCHOS_TEST_FOR_EXCEPTION(

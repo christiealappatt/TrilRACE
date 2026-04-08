@@ -506,9 +506,8 @@ namespace FROSch {
         //
 #ifdef DANE_DEBUG
         std::cout << "ctor done" << std::endl;
-#endif
-        // Just for debugging
         Ifpack2Params_.print(std::cout);
+#endif
     }
 }
 
