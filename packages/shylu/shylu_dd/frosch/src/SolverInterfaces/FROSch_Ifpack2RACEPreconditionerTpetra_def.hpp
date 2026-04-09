@@ -86,19 +86,20 @@ namespace FROSch {
     {
 #ifdef DANE_DEBUG
         std::cout << "Calling Ifpack2RACEPreconditionerTpetra<SC,LO,GO,NO>::compute()..." << std::endl;
+#ifdef USE_RACE
+        std::cout << "Preprocessing local subdomains with RACE!" << std::endl;
+#endif
 #endif
         FROSCH_TIMER_START_SOLVER(computeTime,"Ifpack2RACEPreconditionerTpetra::compute");
         FROSCH_ASSERT(this->IsInitialized_,"FROSch::Ifpack2vPreconditionerTpetra: !this->IsInitialized_");
         
 #ifdef USE_RACE
-        std::cout << "Preprocessing local subdomains with RACE!" << std::endl;
 
         // Get parameters from .xml file
         Teuchos::ParameterList& raceXmlParams = this->ParameterList_->sublist("RACE");
         Teuchos::RCP<RACE_type> race;
         RCP<crs_matrix_type> A;
         void* raceVoidHandle = NULL;
-        tunedPower_ = 1;
 
         ParameterList RACE_params("RACE");
 		double cacheSize = 1.0;
@@ -106,14 +107,17 @@ namespace FROSch {
         	cacheSize = raceXmlParams.get("Cache size", 1.0);
 		if (raceXmlParams.isParameter("Highest power"))
        		highestPower_ = raceXmlParams.get("Highest power", 1);
+		if (raceXmlParams.isParameter("Tuned power"))
+       		tunedPower_ = raceXmlParams.get("Tuned power", -1);
 
         RACE_params.set("Cache size", cacheSize);
         RACE_params.set("Highest power", highestPower_);
+        RACE_params.set("Tuned power", tunedPower_);
         RACE_params.set("Preconditioner", Ifpack2Type_);
 
-        // Force CHEBYSHEV for now
-        if (Ifpack2Type_ != std::string("CHEBYSHEV")){
-                std::cout << "For now, only CHEBYSHEV supported" << std::endl;
+        // Force CHEBYSHEV or 2GS for now
+        if ( Ifpack2Type_ != std::string("CHEBYSHEV") && Ifpack2Type_ != std::string("TWO-STAGE GAUSS-SEIDEL") ){
+                std::cout << "For now, only CHEBYSHEV and TWO-STAGE GAUSS-SEIDEL are supported" << std::endl;
         }
         else {
                 // Taken from: TrilRACE/packages/muelu/example/basic/Stratimikos.cpp
@@ -149,10 +153,14 @@ namespace FROSch {
         }
 
         // Init interface
+        FROSCH_TIMER_START_SOLVER(raceInitTimer, "RACE Initialization");
         race = Teuchos::rcp(new RACE_type(crsMat, RACE_params));
+        FROSCH_TIMER_STOP(raceInitTimer);
         
         // Have RACE permute matrix
+        FROSCH_TIMER_START_SOLVER(racePermTimer, "RACE Permutation");
         A = race->getPermutedMatrix();
+        FROSCH_TIMER_STOP(racePermTimer);
 
 #ifdef DANE_DEBUG
         TEUCHOS_TEST_FOR_EXCEPTION(A.is_null(), std::runtime_error,
@@ -203,8 +211,8 @@ namespace FROSch {
         Teuchos::ParameterList params = Ifpack2Params_;
 
         // Create a new preconditioner of the same type with the new (permuted) matrix
+        FROSCH_TIMER_START_SOLVER(raceNewPrecTimer, "RACE Set New Preconditioner");
         Teuchos::RCP<Ifpack2::Preconditioner<SC,LO,GO,NO>> newPrec;
-
         Ifpack2::Details::OneLevelFactory<TRowMatrix> ifpack2Factory;
         
         try {
@@ -244,6 +252,8 @@ namespace FROSch {
 
         // Replace old instance
         Ifpack2RACEPreconditioner_ = newPrec;
+        FROSCH_TIMER_STOP(raceNewPrecTimer);
+
 
         // Save the RACE RCP into the class
         this->race_ = race;
@@ -257,8 +267,10 @@ namespace FROSch {
             raceYwork_ = Teuchos::rcp(new Tpetra::MultiVector<SC,LO,GO,NO>(raceRangeMap_,  1));
         }
 
-        // Autotuning: race_ and work vectors are ready here
-        {
+        // If no tuned power is selected, we autotune it
+        FROSCH_TIMER_START_SOLVER(raceAutotuneTimer, "RACE Autotune");
+        if (tunedPower_ == -1) {
+            printf("Autotuning enabled\n");
             Teuchos::RCP<Tpetra::MultiVector<SC,LO,GO,NO>> test_x, test_b, test_r;
             test_x = Teuchos::rcp(new Tpetra::MultiVector<SC,LO,GO,NO>(raceRangeMap_, 1));
             test_b = Teuchos::rcp(new Tpetra::MultiVector<SC,LO,GO,NO>(raceRangeMap_, 1));
@@ -266,6 +278,7 @@ namespace FROSch {
             tunedPower_ = race_->apply_Smoother(highestPower_, *test_x, *test_b, *test_r, false, true, -1);
             printf("tuned pow = %d\n", tunedPower_);
         }
+        FROSCH_TIMER_STOP(raceAutotuneTimer);
 
 #ifdef DANE_DEBUG
         {
