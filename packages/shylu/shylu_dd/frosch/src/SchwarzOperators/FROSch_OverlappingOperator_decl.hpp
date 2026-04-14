@@ -44,6 +44,10 @@
 
 #include <FROSch_SchwarzOperator_def.hpp>
 
+// DL 2026.04.09: For easy benchmarking of local subdomain problems!
+// Need to put into cmake file
+// #define PRINT_LOCAL_MTX
+
 
 namespace FROSch {
 
@@ -88,7 +92,9 @@ namespace FROSch {
                             ParameterListPtr parameterList);
 
         ~OverlappingOperator();
-
+#ifdef PRINT_LOCAL_MTX
+        void exportLocalMatrix(const std::string& filename) const;
+#endif
         virtual int initialize() = 0;
 
         virtual int compute() = 0;

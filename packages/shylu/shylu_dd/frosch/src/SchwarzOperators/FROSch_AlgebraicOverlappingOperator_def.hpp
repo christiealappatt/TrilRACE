@@ -130,6 +130,16 @@ namespace FROSch {
         FROSCH_TIMER_START_LEVELID(computeTime,"AlgebraicOverlappingOperator::compute");
         FROSCH_ASSERT(this->IsInitialized_,"ERROR: AlgebraicOverlappingOperator has to be initialized before calling compute()");
         this->computeOverlappingOperator();
+        // DL 2026.04.09: For easy benchmarking of local subdomain problems!
+#ifdef PRINT_LOCAL_MTX
+        int myRank = this->MpiComm_->getRank();
+        std::string filename = "local_subdomain_rank_" + std::to_string(myRank) + ".mtx";
+        std::cout << "Rank: " << myRank << " writing its local subdomain system to: " << filename << std::endl;
+        this->exportLocalMatrix(filename);
+        std::cout << "Rank: " << myRank << " finished writing" << std::endl;
+        std::fflush(stdout); // ensure output is flushed before exit
+        std::exit(EXIT_SUCCESS);
+#endif
         return 0; // RETURN VALUE!!!
     }
 

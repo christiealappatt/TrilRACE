@@ -144,6 +144,7 @@ namespace FROSch {
         std::string Ifpack2Type_;
         int highestPower_;
         int tunedPower_;
+        bool isSymmetricGS_ = false;  // Track if using symmetric two-stage GS
         Teuchos::RCP<RACE_type> race_;
         mutable Teuchos::RCP<Tpetra::MultiVector<SC,LO,GO,NO>> raceXwork_;
         mutable Teuchos::RCP<Tpetra::MultiVector<SC,LO,GO,NO>> raceYwork_;

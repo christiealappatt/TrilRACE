@@ -113,30 +113,71 @@ namespace FROSch {
         RACE_params.set("Cache size", cacheSize);
         RACE_params.set("Highest power", highestPower_);
         RACE_params.set("Tuned power", tunedPower_);
-        RACE_params.set("Preconditioner", Ifpack2Type_);
-
-        // Force CHEBYSHEV or 2GS for now
-        if ( Ifpack2Type_ != std::string("CHEBYSHEV") && Ifpack2Type_ != std::string("TWO-STAGE GAUSS-SEIDEL") ){
-                std::cout << "For now, only CHEBYSHEV and TWO-STAGE GAUSS-SEIDEL are supported" << std::endl;
+        
+		// Taken from: TrilRACE/packages/muelu/example/basic/Stratimikos.cpp
+        // Force CHEBYSHEV or *Symmetric* 2GS for now
+		bool isChebyshev = (Ifpack2Type_ == "CHEBYSHEV");
+		bool isRelaxation = (Ifpack2Type_ == "RELAXATION");
+		bool isS2GS = (Ifpack2Params_.get("relaxation: type", "") == "Two-stage Symmetric Gauss-Seidel");
+        
+		std::string RACE_precon_type = "NONE";
+        if (!isChebyshev && !(isRelaxation && isS2GS)){
+                std::cout << "For now, RACE-MPK only supported in CHEBYSHEV and RELAXATION: Two-stage Symmetric Gauss-Seidel." << std::endl;
+                std::exit(1);
+        }
+        else if (isChebyshev) {
+            RACE_precon_type = "CHEBYSHEV";
+			double lambdaMax = std::nan("");
+			if (Ifpack2Params_.isParameter("chebyshev: max eigenvalue")) {
+			lambdaMax = Ifpack2Params_.get("chebyshev: max eigenvalue", lambdaMax);
+			RACE_params.set("max eigenvalue", lambdaMax);
+			}
+			double eigRatio = 20.0;
+			if (Ifpack2Params_.isParameter("chebyshev: ratio eigenvalue")) {
+			eigRatio = Ifpack2Params_.get("chebyshev: ratio eigenvalue", eigRatio);
+			}
+			RACE_params.set("ratio eigenvalue", eigRatio);
+			if (!std::isnan(lambdaMax))
+			RACE_params.set("min eigenvalue", lambdaMax / eigRatio);
+			int smootherOuterSweep = Ifpack2Params_.get("chebyshev: degree", 3);
+			RACE_params.set("Outer iteration", smootherOuterSweep);
+        }
+        else if (isRelaxation && isS2GS) { // We know that it's S2GS from the check before
+			// Detect if symmetric variant and use standard RACE type (we'll enforce symmetry in apply())
+			isSymmetricGS_ = (Ifpack2Params_.get("relaxation: type", "") == "Two-stage Symmetric Gauss-Seidel");
+			RACE_precon_type = "TWO-STEP-GAUSS-SEIDEL";  // Always use standard variant in RACE
+			
+			// Read inner iterations and damping
+			int smootherInnerSweep_default = 1;
+			int smootherInnerSweep = Ifpack2Params_.get("relaxation: inner sweeps", smootherInnerSweep_default);
+			RACE_params.set("Inner iteration", smootherInnerSweep);
+			
+			double gamma_default = 1.0;
+			double gamma = Ifpack2Params_.get("relaxation: inner damping factor", gamma_default);
+			RACE_params.set("Inner damping", gamma);
+			
+			// Read outer sweeps
+			int smootherOuterSweep_default = 1;
+			int smootherOuterSweep = Ifpack2Params_.get("relaxation: sweeps", smootherOuterSweep_default);
+			RACE_params.set("Outer iteration", smootherOuterSweep);
+			
+#ifdef DANE_DEBUG
+			std::cout << "[DEBUG] Two-Stage Gauss-Seidel configuration:" << std::endl;
+			if (isSymmetricGS_) {
+				std::cout << "  Variant: Symmetric (enforced in FROSch apply via dual sweeps)" << std::endl;
+			} else {
+				std::cout << "  Variant: Non-symmetric" << std::endl;
+			}
+			std::cout << "  Inner sweeps: " << smootherInnerSweep << ", Inner damping: " << gamma << std::endl;
+			std::cout << "  Outer sweeps: " << smootherOuterSweep << std::endl;
+#endif
         }
         else {
-                // Taken from: TrilRACE/packages/muelu/example/basic/Stratimikos.cpp
-                double lambdaMax = std::nan("");
-                if (Ifpack2Params_.isParameter("chebyshev: max eigenvalue")) {
-                lambdaMax = Ifpack2Params_.get("chebyshev: max eigenvalue", lambdaMax);
-                RACE_params.set("max eigenvalue", lambdaMax);
-                }
-                double eigRatio = 20.0;
-                if (Ifpack2Params_.isParameter("chebyshev: ratio eigenvalue")) {
-                eigRatio = Ifpack2Params_.get("chebyshev: ratio eigenvalue", eigRatio);
-                }
-                RACE_params.set("ratio eigenvalue", eigRatio);
-                if (!std::isnan(lambdaMax))
-                RACE_params.set("min eigenvalue", lambdaMax / eigRatio);
-                int smootherOuterSweep = Ifpack2Params_.get("chebyshev: degree", 3);
-                RACE_params.set("Outer iteration", smootherOuterSweep);
+                std::cout << "Ifpack2Type_: " << Ifpack2Type_ << " not recognized." << std::endl;
+                std::exit(1);
         }
-        //
+        
+        RACE_params.set("Preconditioner", RACE_precon_type);
 
        // Try to extract a Tpetra::CrsMatrix from the Ifpack2 preconditioner's matrix (non-const)
         ConstTCrsMatrixPtr constCrs = Ifpack2::Details::getCrsMatrix<SC,LO,GO,NO>(Ifpack2RACEPreconditioner_->getMatrix());
@@ -354,9 +395,14 @@ namespace FROSch {
         // Permute original x -> permuted Xp
         race_->origToPerm(*raceXwork_, *tpetraMultiVectorX);
 
-        // DL 2026-03-30 TODO: Auto input for tunedPow
-        // Apply preconditioner built on permuted matrix
+		// For chebyshev: entire phase is done here
+        // For symmetric two-stage GS: Forward sweep
         race_->apply_Smoother(highestPower_, *raceYwork_, *raceXwork_, true, true, tunedPower_);
+        
+        if (isSymmetricGS_) {
+            // For symmetric two-stage GS: Backward sweep
+            race_->apply_Smoother(highestPower_, *raceYwork_, *raceXwork_, false, false, tunedPower_);
+        }
 
         // Permute result back to original ordering
         race_->permToOrig(*tpetraMultiVectorY, *raceYwork_);

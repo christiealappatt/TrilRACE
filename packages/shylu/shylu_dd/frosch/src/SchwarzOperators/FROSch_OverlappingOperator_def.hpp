@@ -44,12 +44,25 @@
 
 #include <FROSch_OverlappingOperator_decl.hpp>
 
+// DL 2026.04.09: For easy benchmarking of local subdomain problems!
+#ifdef PRINT_LOCAL_MTX
+#include <Xpetra_IO.hpp>
+#endif
 
 namespace FROSch {
 
     using namespace std;
     using namespace Teuchos;
     using namespace Xpetra;
+
+// DL 2026.04.09: For easy benchmarking of local subdomain problems!
+#ifdef PRINT_LOCAL_MTX
+    template <class SC,class LO,class GO,class NO>
+    void OverlappingOperator<SC,LO,GO,NO>::exportLocalMatrix(const std::string& filename) const
+    {
+        Xpetra::IO<SC,LO,GO,NO>::Write(filename, *OverlappingMatrix_);
+    }
+#endif
 
     template <class SC,class LO,class GO,class NO>
     OverlappingOperator<SC,LO,GO,NO>::OverlappingOperator(ConstXMatrixPtr k,
