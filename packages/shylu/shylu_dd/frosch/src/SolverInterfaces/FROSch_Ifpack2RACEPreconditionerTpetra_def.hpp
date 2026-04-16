@@ -140,6 +140,7 @@ namespace FROSch {
 			if (!std::isnan(lambdaMax))
 			RACE_params.set("min eigenvalue", lambdaMax / eigRatio);
 			int smootherOuterSweep = Ifpack2Params_.get("chebyshev: degree", 3);
+			outerSweeps_ = smootherOuterSweep;  // Store for apply_Smoother
 			RACE_params.set("Outer iteration", smootherOuterSweep);
         }
         else if (isRelaxation && isS2GS) { // We know that it's S2GS from the check before
@@ -159,6 +160,7 @@ namespace FROSch {
 			// Read outer sweeps
 			int smootherOuterSweep_default = 1;
 			int smootherOuterSweep = Ifpack2Params_.get("relaxation: sweeps", smootherOuterSweep_default);
+			outerSweeps_ = smootherOuterSweep;  // Store for apply_Smoother
 			RACE_params.set("Outer iteration", smootherOuterSweep);
 			
 #ifdef DANE_DEBUG
@@ -397,11 +399,11 @@ namespace FROSch {
 
 		// For chebyshev: entire phase is done here
         // For symmetric two-stage GS: Forward sweep
-        race_->apply_Smoother(highestPower_, *raceYwork_, *raceXwork_, true, true, tunedPower_);
+        race_->apply_Smoother(outerSweeps_, *raceYwork_, *raceXwork_, true, true, tunedPower_);
         
         if (isSymmetricGS_) {
             // For symmetric two-stage GS: Backward sweep
-            race_->apply_Smoother(highestPower_, *raceYwork_, *raceXwork_, false, false, tunedPower_);
+            race_->apply_Smoother(outerSweeps_, *raceYwork_, *raceXwork_, false, false, tunedPower_);
         }
 
         // Permute result back to original ordering

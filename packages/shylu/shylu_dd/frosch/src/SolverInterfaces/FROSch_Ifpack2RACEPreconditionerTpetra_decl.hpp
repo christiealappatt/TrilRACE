@@ -142,7 +142,8 @@ namespace FROSch {
 #ifdef USE_RACE
         Teuchos::ParameterList Ifpack2Params_;
         std::string Ifpack2Type_;
-        int highestPower_;
+        int highestPower_;     // RACE cache-blocking depth (for preprocessing)
+        int outerSweeps_;      // Actual number of outer sweeps (for apply_Smoother)
         int tunedPower_;
         bool isSymmetricGS_ = false;  // Track if using symmetric two-stage GS
         Teuchos::RCP<RACE_type> race_;
