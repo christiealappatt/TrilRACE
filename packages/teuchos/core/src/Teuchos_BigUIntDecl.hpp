@@ -42,6 +42,7 @@
 #ifndef TEUCHOS_BIG_UINT_DECL_HPP
 #define TEUCHOS_BIG_UINT_DECL_HPP
 
+#include <cstdint> // DL: 2026.04.16
 #include <iosfwd>
 
 /*! \file Teuchos_BigUIntDecl.hpp

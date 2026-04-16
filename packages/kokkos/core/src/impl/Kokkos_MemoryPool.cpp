@@ -48,6 +48,7 @@
 
 #include <impl/Kokkos_Error.hpp>
 
+#include <cstdint> // DL: 2026.04.16
 #include <ostream>
 #include <sstream>
 

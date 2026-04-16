@@ -180,6 +180,7 @@ namespace RACE {
                 int precon_cur_offset = cur_offset;\
                 array_type* preconOutArray = x;\
                 int precon_next_offset = next_offset+glb_arr_offset;\
+                Scalar theta_i = theta[cur_offset].imag();\
                 if((subPow%2) == 1) /*MPK-kernel*/\
                 {\
                     BASE_GmresSstepKernel_MPK(1);\
