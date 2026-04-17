@@ -314,8 +314,12 @@ namespace RACE {
                 }
                 else if(zeroOut)
                 {
-                    workspace->putScalar(0);
+                    // workspace->putScalar(0); // DL 2026.04.17: BUG?
+                    workspace->putScalar(0.0);
                 }
+
+                // DL 2026.04.17: no-return BUG?
+                return newAllocate;
             }
 
             //MPK_GmresSstepKernel performs the main apply kernel for GmresSstep
