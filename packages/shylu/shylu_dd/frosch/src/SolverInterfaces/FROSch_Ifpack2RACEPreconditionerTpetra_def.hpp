@@ -46,12 +46,16 @@
 
 #include "Ifpack2_Details_getCrsMatrix.hpp"
 #include "Ifpack2_RILUK_decl.hpp"
+#include "Ifpack2_Chebyshev_decl.hpp" // For help printing global ranks
+#include "Ifpack2_PowerMethod.hpp" // For computing max eigenvalue
 
 #ifdef HAVE_SHYLU_DDFROSCH_ZOLTAN2
 #include "Zoltan2_TpetraRowGraphAdapter.hpp"
 #include "Zoltan2_OrderingProblem.hpp"
 #include "Zoltan2_OrderingSolution.hpp"
 #endif
+
+// #define DANE_EIGS_CHECK
 
 namespace FROSch {
 
@@ -114,6 +118,18 @@ namespace FROSch {
         RACE_params.set("Highest power", highestPower_);
         RACE_params.set("Tuned power", tunedPower_);
         
+        // Extract matrix early for eigenvalue computation if needed
+        ConstTCrsMatrixPtr constCrs = Ifpack2::Details::getCrsMatrix<SC,LO,GO,NO>(Ifpack2RACEPreconditioner_->getMatrix());
+        if (constCrs.is_null()) {
+            std::cerr << "Ifpack2RACEPreconditionerTpetra::compute: could not extract a Tpetra::CrsMatrix for RACE." << std::endl;
+            return -1;
+        }
+        Teuchos::RCP<crs_matrix_type> crsMat = Teuchos::rcp_const_cast<crs_matrix_type>(constCrs);
+        if (crsMat.is_null()) {
+            std::cerr << "Ifpack2RACEPreconditionerTpetra::compute: could not obtain non-const CrsMatrix for RACE." << std::endl;
+            return -1;
+        }
+        
 		// Taken from: TrilRACE/packages/muelu/example/basic/Stratimikos.cpp
         // Force CHEBYSHEV or *Symmetric* 2GS for now
 		bool isChebyshev = (Ifpack2Type_ == "CHEBYSHEV");
@@ -127,18 +143,16 @@ namespace FROSch {
         }
         else if (isChebyshev) {
             RACE_precon_type = "CHEBYSHEV";
-			double lambdaMax = std::nan("");
-			if (Ifpack2Params_.isParameter("chebyshev: max eigenvalue")) {
-			lambdaMax = Ifpack2Params_.get("chebyshev: max eigenvalue", lambdaMax);
-			RACE_params.set("max eigenvalue", lambdaMax);
-			}
+			// Don't pre-compute eigenvalues here - let Ifpack2 compute them on the PERMUTED matrix
+			// during newPrec->compute() below, just like native Ifpack2 does.
+			// This ensures eigenvalues are computed on the same matrix that Ifpack2 will use.
+			
+            // Default in Ifpack2
 			double eigRatio = 20.0;
 			if (Ifpack2Params_.isParameter("chebyshev: ratio eigenvalue")) {
-			eigRatio = Ifpack2Params_.get("chebyshev: ratio eigenvalue", eigRatio);
+				eigRatio = Ifpack2Params_.get("chebyshev: ratio eigenvalue", eigRatio);
 			}
 			RACE_params.set("ratio eigenvalue", eigRatio);
-			if (!std::isnan(lambdaMax))
-			RACE_params.set("min eigenvalue", lambdaMax / eigRatio);
 			int smootherOuterSweep = Ifpack2Params_.get("chebyshev: degree", 3);
 			outerSweeps_ = smootherOuterSweep;  // Store for apply_Smoother
 			RACE_params.set("Outer iteration", smootherOuterSweep);
@@ -181,21 +195,7 @@ namespace FROSch {
         
         RACE_params.set("Preconditioner", RACE_precon_type);
 
-       // Try to extract a Tpetra::CrsMatrix from the Ifpack2 preconditioner's matrix (non-const)
-        ConstTCrsMatrixPtr constCrs = Ifpack2::Details::getCrsMatrix<SC,LO,GO,NO>(Ifpack2RACEPreconditioner_->getMatrix());
-        if (constCrs.is_null()) {
-            std::cerr << "Ifpack2RACEPreconditionerTpetra::initialize: could not extract a Tpetra::CrsMatrix for RACE." << std::endl;
-            return -1;
-        }
-
-        // Remove constness (only safe if the underlying object is truly mutable)
-        Teuchos::RCP<crs_matrix_type> crsMat = Teuchos::rcp_const_cast<crs_matrix_type>(constCrs);
-        if (crsMat.is_null()) {
-            std::cerr << "Ifpack2RACEPreconditionerTpetra::initialize: could not obtain non-const CrsMatrix for RACE." << std::endl;
-            return -1;
-        }
-
-        // Init interface
+        // Init interface (matrix already extracted earlier)
         FROSCH_TIMER_START_SOLVER(raceInitTimer, "RACE Initialization");
         race = Teuchos::rcp(new RACE_type(crsMat, RACE_params));
         FROSCH_TIMER_STOP(raceInitTimer);
@@ -252,6 +252,59 @@ namespace FROSch {
         // Get the existing parameter list and type from the current preconditioner
         std::string precType = Ifpack2Type_;
         Teuchos::ParameterList params = Ifpack2Params_;
+
+        // Compute eigenvalues on the ORIGINAL (unpermuted) matrix to match Ifpack2 native
+        // Even though RACE will apply smoother on permuted matrix, eigenvalues must be computed 
+        // on the same matrix that Ifpack2 native computes on (the original subdomain matrix)
+        if (precType == "CHEBYSHEV" && !params.isParameter("chebyshev: max eigenvalue")) {
+            // Compute eigenvalue using power method on the ORIGINAL (unpermuted) matrix
+            // Create diagonal and invert it for D^{-1}*A eigenvalue computation
+            Teuchos::RCP<Tpetra::Vector<SC,LO,GO,NO>> diag = 
+                Teuchos::rcp(new Tpetra::Vector<SC,LO,GO,NO>(crsMat->getRowMap()));
+            crsMat->getLocalDiagCopy(*diag);
+            
+            // Invert diagonal with threshold to avoid division by zero (matches Ifpack2)
+            SC minDiagVal = 1e-16;
+            auto diag_lcl = diag->getDataNonConst(0);
+            for (size_t i = 0; i < diag->getLocalLength(); ++i) {
+                if (std::abs(diag_lcl[i]) < minDiagVal) {
+                    diag_lcl[i] = minDiagVal;
+                } else {
+                    diag_lcl[i] = SC(1.0) / diag_lcl[i];
+                }
+            }
+            
+            Teuchos::RCP<Tpetra::Vector<SC,LO,GO,NO>> x = 
+                Teuchos::rcp(new Tpetra::Vector<SC,LO,GO,NO>(crsMat->getDomainMap()));
+            Teuchos::RCP<Tpetra::Vector<SC,LO,GO,NO>> y = 
+                Teuchos::rcp(new Tpetra::Vector<SC,LO,GO,NO>(crsMat->getRangeMap()));
+            Ifpack2::PowerMethod::computeInitialGuessForPowerMethod(*x, false);
+            
+            // Compute eigenvalue of D^{-1}*A via power method on ORIGINAL (unpermuted) matrix
+            SC lambdaMax = Ifpack2::PowerMethod::powerMethodWithInitGuess(
+                *crsMat, *diag, 10, x, y, 0.0, 1, Teuchos::null, true);
+            
+#ifdef DANE_EIGS_CHECK
+            std::cout << "[Global Rank " << globalRank_ << "] Computed lambdaMax on ORIGINAL (unpermuted) matrix: " << lambdaMax << std::endl;
+#endif
+
+            // Pass computed eigenvalues to Ifpack2 so it doesn't recompute
+            params.set("chebyshev: max eigenvalue", lambdaMax);
+            
+            // Compute min eigenvalue using eigenvalue ratio (same as Ifpack2)
+            double eigRatio = 20.0;
+            if (Ifpack2Params_.isParameter("chebyshev: ratio eigenvalue")) {
+                eigRatio = Ifpack2Params_.get("chebyshev: ratio eigenvalue", eigRatio);
+            }
+            SC lambdaMin = lambdaMax / eigRatio;
+            params.set("chebyshev: min eigenvalue", lambdaMin);
+            
+            // Also set eigenvalues in RACE_params and update RACE object with new parameters
+            // RACE will use these eigenvalues for the permuted matrix
+            RACE_params.set("max eigenvalue", lambdaMax);
+            RACE_params.set("min eigenvalue", lambdaMin);
+            race->updateParamList(RACE_params);  // Update RACE with new eigenvalues
+        }
 
         // Create a new preconditioner of the same type with the new (permuted) matrix
         FROSCH_TIMER_START_SOLVER(raceNewPrecTimer, "RACE Set New Preconditioner");
@@ -353,14 +406,16 @@ namespace FROSch {
                 "RACE permutation round-trip failed (swap perm semantics).");
         }
 #endif
+
 #else
-        
         this->IsComputed_ = true;
         Ifpack2RACEPreconditioner_->compute();
 #endif
+
 #ifdef DANE_DEBUG
         std::cout << "compute() done" << std::endl;
 #endif
+
         return 0;
     }
 
@@ -513,6 +568,10 @@ namespace FROSch {
         ConstTCrsMatrixPtr tpetraMat = xTpetraMat.getTpetra_CrsMatrix();
         TEUCHOS_TEST_FOR_EXCEPT(tpetraMat.is_null());
 
+#ifdef DANE_EIGS_CHECK
+        // Read global MPI rank from parameter list (injected by OverlappingOperator before calling SolverFactory)
+        globalRank_ = this->ParameterList_->get("Global MPI Rank", 0);
+#endif
         auto solverName = this->ParameterList_->get("Solver","RILUK");
         this->useRILUK = (solverName == "RILUK");
         this->useZoltan2 = this->ParameterList_->get("RILUK: use reordering", false);

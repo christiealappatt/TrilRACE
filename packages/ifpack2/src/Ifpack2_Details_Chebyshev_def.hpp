@@ -64,6 +64,8 @@
 #include <cmath>
 #include <iostream>
 
+// #define DANE_CHECK_EIGS
+
 namespace Ifpack2 {
 namespace Details {
 
@@ -946,7 +948,14 @@ Chebyshev<ScalarType, MV>::compute ()
 
   // Always favor the user's max eigenvalue estimate, if provided.
   lambdaMaxForApply_ = STS::isnaninf (userLambdaMax_) ? computedLambdaMax_ : userLambdaMax_;
- 
+#ifdef DANE_CHECK_EIGS
+      int myRank = 0;
+      if (! out_.is_null() && ! out_->getComm().is_null()) {
+        myRank = out_->getComm()->getRank();
+      }
+      *out_ << "[Rank " << myRank << "] Computed max eigenvalue: " << computedLambdaMax_ << std::endl;
+      *out_ << "[Rank " << myRank << "] Max eigenvalue being used: " << lambdaMaxForApply_ << std::endl;
+#endif
   // mfh 11 Feb 2013: For now, we imitate Ifpack by ignoring the
   // user's min eigenvalue estimate, and using the given eigenvalue
   // ratio to estimate the min eigenvalue.  We could instead do this:

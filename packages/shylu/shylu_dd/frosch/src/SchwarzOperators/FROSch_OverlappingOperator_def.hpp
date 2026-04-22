@@ -240,6 +240,8 @@ namespace FROSch {
             // initializeSubdomainSolver is called during symbolic only if reuseSymbolicFactorization=true
             // so if reuseSymbolicFactorization=false, we always call initializeSubdomainSolver 
             if (this->IsComputed_ && this->Verbose_) cout << "FROSch::OverlappingOperator : Recomputing the Symbolic Factorization" << endl;
+            // Inject global MPI rank into Solver parameters so subdomain solver can use it for diagnostics
+            this->ParameterList_->sublist("Solver").set("Global MPI Rank", this->MpiComm_->getRank());
             initializeSubdomainSolver(this->OverlappingMatrix_);
         } else if (this->IsComputed_) {
             // if !IsComputed, then this is the first timing calling "compute" after initializeSubdomainSolver is called in symbolic phase

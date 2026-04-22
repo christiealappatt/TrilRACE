@@ -116,6 +116,8 @@ namespace FROSch {
         bool reuseSymbolicFactorization = this->ParameterList_->get("Reuse: Symbolic Factorization",true);
         if (this->ExtractLocalSubdomainMatrix_Symbolic_Done_ && reuseSymbolicFactorization) {
             // if reuseSymbolicFactorization=false, we call initializeSubdomainSolver is called during compute
+            // Inject global MPI rank into Solver parameters so subdomain solver can use it for diagnostics
+            this->ParameterList_->sublist("Solver").set("Global MPI Rank", this->MpiComm_->getRank());
             this->initializeSubdomainSolver(this->localSubdomainMatrix_);
         }
 

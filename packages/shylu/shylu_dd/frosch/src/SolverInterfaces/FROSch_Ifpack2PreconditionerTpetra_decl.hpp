@@ -132,6 +132,7 @@ namespace FROSch {
         bool needToApplyPerm;
         Teuchos::ArrayRCP<LO>    perm;
         Teuchos::ArrayRCP<LO>    revperm;
+        int globalRank_ = 0;
 
         friend class SolverFactory<SC,LO,GO,NO>;
     };

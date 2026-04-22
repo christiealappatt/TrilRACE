@@ -46,12 +46,15 @@
 
 #include "Ifpack2_Details_getCrsMatrix.hpp"
 #include "Ifpack2_RILUK_decl.hpp"
+#include "Ifpack2_Chebyshev_decl.hpp"
 
 #ifdef HAVE_SHYLU_DDFROSCH_ZOLTAN2
 #include "Zoltan2_TpetraRowGraphAdapter.hpp"
 #include "Zoltan2_OrderingProblem.hpp"
 #include "Zoltan2_OrderingSolution.hpp"
 #endif
+
+// #define DANE_EIGS_CHECK
 
 namespace FROSch {
 
@@ -76,6 +79,34 @@ namespace FROSch {
         FROSCH_ASSERT(this->IsInitialized_,"FROSch::Ifpack2PreconditionerTpetra: !this->IsInitialized_");
         this->IsComputed_ = true;
         Ifpack2Preconditioner_->compute();
+#ifdef DANE_EIGS_CHECK
+        // Print eigenvalue estimates with global MPI rank (only if using Chebyshev)
+        auto solverName = this->ParameterList_->get("Solver","RILUK");
+        std::cout << "[Global Rank " << globalRank_ << "] Solver name: " << solverName << std::endl;
+        std::cout << "[Global Rank " << globalRank_ << "] Ifpack2Preconditioner_ type: " << typeid(*Ifpack2Preconditioner_).name() << std::endl;
+        std::cout << "[Global Rank " << globalRank_ << "] TRowMatrix type: " << typeid(TRowMatrix).name() << std::endl;
+        
+        if (solverName == "CHEBYSHEV") {
+            std::cout << "[Global Rank " << globalRank_ << "] Attempting Chebyshev cast to Ifpack2::Chebyshev<TRowMatrix>..." << std::endl;
+            auto chebPrec = Teuchos::rcp_dynamic_cast<Ifpack2::Chebyshev<TRowMatrix>>(Ifpack2Preconditioner_);
+            if (!chebPrec.is_null()) {
+                SC lambdaMax = chebPrec->getLambdaMaxForApply();
+                std::cout << "[Global Rank " << globalRank_ << "] SUCCESS! Chebyshev max eigenvalue for apply: " << lambdaMax << std::endl;
+            } else {
+                std::cout << "[Global Rank " << globalRank_ << "] FAILED - Chebyshev cast returned null pointer!" << std::endl;
+                std::cout << "[Global Rank " << globalRank_ << "] Trying alternative cast approach..." << std::endl;
+                // Try to access through Preconditioner base class
+                auto precBase = Ifpack2Preconditioner_;
+                if (precBase.is_null()) {
+                    std::cout << "[Global Rank " << globalRank_ << "] Preconditioner is null!" << std::endl;
+                } else {
+                    std::cout << "[Global Rank " << globalRank_ << "] Preconditioner is valid" << std::endl;
+                }
+            }
+        } else {
+            std::cout << "[Global Rank " << globalRank_ << "] Not CHEBYSHEV solver, skipping eigenvalue output" << std::endl;
+        }
+#endif
         return 0;
     }
 
@@ -162,7 +193,10 @@ namespace FROSch {
         const TpetraCrsMatrix<SC,LO,GO,NO>& xTpetraMat = dynamic_cast<const TpetraCrsMatrix<SC,LO,GO,NO>&>(*crsOp.getCrsMatrix());
         ConstTCrsMatrixPtr tpetraMat = xTpetraMat.getTpetra_CrsMatrix();
         TEUCHOS_TEST_FOR_EXCEPT(tpetraMat.is_null());
-
+#ifdef DANE_EIGS_CHECK
+        // Read global MPI rank from parameter list (injected by OverlappingOperator before calling SolverFactory)
+        globalRank_ = this->ParameterList_->get("Global MPI Rank", 0);
+#endif
         auto solverName = this->ParameterList_->get("Solver","RILUK");
         this->useRILUK = (solverName == "RILUK");
         this->useZoltan2 = this->ParameterList_->get("RILUK: use reordering", false);

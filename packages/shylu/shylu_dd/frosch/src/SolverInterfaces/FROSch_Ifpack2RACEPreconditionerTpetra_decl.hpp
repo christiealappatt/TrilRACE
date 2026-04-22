@@ -144,13 +144,14 @@ namespace FROSch {
         std::string Ifpack2Type_;
         int highestPower_;     // RACE cache-blocking depth (for preprocessing)
         int outerSweeps_;      // Actual number of outer sweeps (for apply_Smoother)
-        int tunedPower_;
+        int tunedPower_ = -1; // Default to autotuning enabled
         bool isSymmetricGS_ = false;  // Track if using symmetric two-stage GS
         Teuchos::RCP<RACE_type> race_;
         mutable Teuchos::RCP<Tpetra::MultiVector<SC,LO,GO,NO>> raceXwork_;
         mutable Teuchos::RCP<Tpetra::MultiVector<SC,LO,GO,NO>> raceYwork_;
         Teuchos::RCP<const Tpetra::Map<LO,GO,NO>> raceDomainMap_;
         Teuchos::RCP<const Tpetra::Map<LO,GO,NO>> raceRangeMap_;
+        int globalRank_ = 0;  // Global MPI rank for debugging output
 #endif
 
         friend class SolverFactory<SC,LO,GO,NO>;
