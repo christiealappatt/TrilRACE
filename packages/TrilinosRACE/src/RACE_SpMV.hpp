@@ -66,8 +66,8 @@ namespace RACE {
 
 #define BASE_SpMV_KERNEL_IN_ROW(_A_, _x_vec_)\
     Scalar tmp = 0;\
-    _Pragma("nounroll")\
     _Pragma("omp simd simdlen(VECTOR_LENGTH) reduction(+:tmp)")\
+    _Pragma("nounroll")\
     for(int idx=(int)_A_->rowPtr[row]; idx<(int)_A_->rowPtr[row+1]; ++idx)\
     {\
         tmp += _A_->val[idx]*((_x_vec_)[_A_->col[idx]]);\

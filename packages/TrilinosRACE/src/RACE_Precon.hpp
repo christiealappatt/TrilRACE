@@ -90,8 +90,8 @@ namespace RACE {
 //therefore we have to distinguish right and left precon here
 #define BASE_PRECON_JACOBI_w_SpMV_RIGHT_KERNEL_IN_ROW(_A_, _x_in_vec_, _x_out_vec_)\
     Scalar tmp = 0;\
-    _Pragma("nounroll")\
     _Pragma("omp simd simdlen(VECTOR_LENGTH) reduction(+:tmp)")\
+    _Pragma("nounroll")\
     for(int idx=(int)_A_->rowPtr[row]; idx<(int)_A_->rowPtr[row+1]; ++idx)\
     {\
         int col_idx = _A_->col[idx];\
@@ -102,8 +102,8 @@ namespace RACE {
 //therefore we have to distinguish right and left precon here
 #define BASE_PRECON_JACOBI_w_SpMV_LEFT_KERNEL_IN_ROW(_A_, _x_in_vec_, _x_out_vec_)\
     Scalar tmp = 0;\
-    _Pragma("nounroll")\
     _Pragma("omp simd simdlen(VECTOR_LENGTH) reduction(+:tmp)")\
+    _Pragma("nounroll")\
     for(int idx=(int)_A_->rowPtr[row]; idx<(int)_A_->rowPtr[row+1]; ++idx)\
     {\
         int col_idx = _A_->col[idx];\
@@ -123,8 +123,8 @@ namespace RACE {
 //conflicts can happen and GS for the rest. The kernel supports multi-threading
 #define BASE_PRECON_JACOBI_GAUSS_SEIDEL_KERNEL_IN_ROW(_A_, _b_vec_, _xInit_vec_)\
     Scalar tmp = 0;\
-    _Pragma("nounroll")\
     _Pragma("omp simd simdlen(VECTOR_LENGTH) reduction(+:tmp)")\
+    _Pragma("nounroll")\
     for(int idx=(int)_A_->rowPtr[row]; idx<(int)_A_->rowPtr[row+1]; ++idx)\
     {\
         int col_idx = _A_->col[idx];\
@@ -141,8 +141,8 @@ namespace RACE {
 /*
 #define BASE_PRECON_JACOBI_RICHARDSON_KERNEL_IN_ROW(_M_, _g0_vec_, _g_vec_)\
     Scalar tmp = 0;\
-    _Pragma("nounroll")\
     _Pragma("omp simd simdlen(VECTOR_LENGTH) reduction(+:tmp)")\
+    _Pragma("nounroll")\
     for(int idx=(int)_M_->rowPtr[row]; idx<(int)_M_->rowPtr[row+1]; ++idx)\
     {\
         int col_idx = _M_->col[idx];\

@@ -36,7 +36,9 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <math.h>
-
+#ifdef TRILINOSSS_HAVE_OMP
+	#include <omp.h>
+#endif
 #undef ASSERT
 #ifndef NDEBUG
 #define ASSERT(a) assert(a)
