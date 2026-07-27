@@ -62,6 +62,8 @@ class SPADDHandle {
 
  private:
   bool input_sorted;
+  // Vinay Edit: no idea how it got here
+  int sort_option = 0;
 
   size_type result_nnz_size;
 
@@ -117,7 +119,7 @@ class SPADDHandle {
         called_symbolic(false),
         called_numeric(false) {}
 
-  virtual ~SPADDHandle(){};
+  virtual ~SPADDHandle() {};
 
   bool is_symbolic_called() { return this->called_symbolic; }
   bool is_numeric_called() { return this->called_numeric; }
